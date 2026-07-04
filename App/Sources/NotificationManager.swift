@@ -14,9 +14,19 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     private var authorizationRequested = false
 
     /// Ask once at launch so the app appears in Notification settings before
-    /// the first alert would fire.
+    /// the first alert would fire. On the very first launch, follow up with
+    /// a single pointer to the menu bar - new users otherwise see nothing.
     func primeAuthorization() {
         requestAuthorizationIfNeeded()
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: "welcomeNotificationSent") else { return }
+        defaults.set(true, forKey: "welcomeNotificationSent")
+        let content = UNMutableNotificationContent()
+        content.body = "Agent Babysitter is running - click the icon in your "
+            + "menu bar to see your AI agents. No setup needed."
+        center.add(UNNotificationRequest(identifier: "welcome", content: content,
+                                         trigger: UNTimeIntervalNotificationTrigger(
+                                             timeInterval: 3, repeats: false)))
     }
 
     func deliver(_ events: [NotificationEvent], rows: [SessionRow],

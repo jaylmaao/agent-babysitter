@@ -248,6 +248,17 @@ struct MenuContent: View {
                             .frame(width: 44, alignment: .trailing)
                             .help(limitHelp(limit, estimate: estimate))
                     }
+                } else if entry.id == "claude-code", !model.claudeUsageMeterEnabled {
+                    // The flagship number shouldn't require a Settings trip:
+                    // one click enables the meter right where the gap is.
+                    Text("no data yet")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                    Button("Show my %") { model.claudeUsageMeterEnabled = true }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                        .help("Records the usage numbers Claude Code already computes on your Mac (adds a small status-line helper to Claude's settings; fully reversible in Settings). Works offline. Desktop-only users can use Live usage in Settings instead.")
                 } else {
                     Text(entry.running ? "not shared by this app" : "no recent reading")
                         .font(.caption)
