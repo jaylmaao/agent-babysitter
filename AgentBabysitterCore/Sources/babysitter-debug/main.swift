@@ -50,3 +50,17 @@ for row in await store.rows() {
 
 let today = await store.todayCost()
 print(String(format: "\ntoday's total: $%.2f", today.dollars))
+
+let limits = await store.usageLimits()
+if limits.isEmpty {
+    print("\n5-hour limits: none recorded locally")
+} else {
+    print("\n5-hour limits:")
+    for (agentID, limit) in limits.sorted(by: { $0.key < $1.key }) {
+        let resets = limit.resetsAt.map {
+            $0 < Date() ? "window reset" : "resets in \(Int($0.timeIntervalSinceNow / 60))m"
+        } ?? "no reset time"
+        print("  [\(agentID)] \(Int(limit.usedPercent))% of \(limit.windowMinutes / 60)h window"
+            + "  plan=\(limit.plan ?? "?")  \(resets)")
+    }
+}
