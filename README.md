@@ -51,11 +51,15 @@ disabling removes only our entries.
   suppressed (a >60s silent think would otherwise flap).
 - **5-hour limits, per agent**: Codex shows a real % from disk (CLI + desktop,
   zero network). Antigravity shows its plan tier read from the IDE state
-  ("Google AI Pro", zero network) — no % is stored anywhere locally. Claude
-  Code publishes its 5h % only in live API responses, so it appears when you
-  enable the opt-in "Live usage" toggle (Settings → Advanced, OFF by default);
-  that is the only feature that ever makes a network call, and only to
-  api.anthropic.com with your own login.
+  ("Google AI Pro", zero network) — no % is stored anywhere locally. Claude Code
+  never writes its 5h % to disk, but it computes the number locally for its
+  own status line — the opt-in "Claude usage meter" (Settings → Advanced)
+  records it with a tiny status-line helper plus the Precision-mode hooks, so
+  the real % shows with zero network, for terminal and desktop app sessions
+  alike; your own status line keeps working and turning it off restores
+  everything. A separate opt-in "Live usage" toggle (also OFF by default) can
+  instead fetch the % from api.anthropic.com with your own login — the only
+  feature that ever makes a network call.
 - **Costs are estimates at API list prices** — on subscription plans this is
   API-equivalent value, not spend. Sonnet 5 uses sticker pricing (intro rate
   runs through 2026-08-31).

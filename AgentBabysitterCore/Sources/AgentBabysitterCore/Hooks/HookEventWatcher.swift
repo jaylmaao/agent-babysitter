@@ -7,15 +7,18 @@ public final class HookEventWatcher: @unchecked Sendable {
 
     private let eventLogURL: URL
     private let onSignal: @Sendable (String, HookSignal) -> Void
+    private let onUsage: (@Sendable (UsageLimitSnapshot) -> Void)?
     private let queue = DispatchQueue(label: "app.agentbabysitter.hook-events")
     private var fsWatcher: FSEventsWatcher?
     private var offset: UInt64 = 0
     private var lineBuffer = Data()
 
     public init(eventLogURL: URL = HooksInstaller.defaultEventLogURL,
-                onSignal: @escaping @Sendable (String, HookSignal) -> Void) {
+                onSignal: @escaping @Sendable (String, HookSignal) -> Void,
+                onUsage: (@Sendable (UsageLimitSnapshot) -> Void)? = nil) {
         self.eventLogURL = eventLogURL
         self.onSignal = onSignal
+        self.onUsage = onUsage
     }
 
     public func start() {
@@ -61,8 +64,12 @@ public final class HookEventWatcher: @unchecked Sendable {
         while let newline = lineBuffer.firstIndex(of: 0x0A) {
             let line = lineBuffer.subdata(in: lineBuffer.startIndex..<newline)
             lineBuffer = Data(lineBuffer[lineBuffer.index(after: newline)...])
-            if let event = HookEventParser.parse(line: line) {
-                onSignal(event.sessionID, HookSignal(kind: event.kind, timestamp: Date()))
+            guard let event = HookEventParser.parse(line: line) else { continue }
+            if let signal = event.signal {
+                onSignal(signal.sessionID, HookSignal(kind: signal.kind, timestamp: Date()))
+            }
+            if let usage = event.usage {
+                onUsage?(usage)
             }
         }
     }

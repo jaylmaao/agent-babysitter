@@ -50,9 +50,13 @@ struct PreferencesView: View {
                     Text("Exact status from Claude Code")
                     Text("Uses Claude Code's own notifications so \"needs you\" and \"done\" are exact instead of inferred. Adds one small entry to Claude Code's settings; your other settings are never touched, and turning this off removes only our entry.")
                 }
+                Toggle(isOn: $model.claudeUsageMeterEnabled) {
+                    Text("Claude usage meter (works offline)")
+                    Text("Shows your real 5-hour usage % by recording the numbers Claude Code already computes on your Mac — no internet needed. Adds a tiny status-line helper and the same settings entry as exact status; if you have your own status line it keeps working, and turning this off restores everything. Terminal sessions update it continuously; desktop app sessions update when a turn finishes.")
+                }
                 Toggle(isOn: $model.liveUsageEnabled) {
                     Text("Live usage % (connects to the internet)")
-                    Text("Off by default, everything else stays fully offline. When on, the app uses your existing Claude login to fetch your real 5-hour usage from Anthropic. It only ever contacts api.anthropic.com and never sends your data anywhere else. Codex already shows real usage with no network; Antigravity doesn't publish a percentage.")
+                    Text("Off by default, everything else stays fully offline. When on, the app uses your existing Claude login to fetch your real 5-hour usage from Anthropic, even before any session runs. It only ever contacts api.anthropic.com and never sends your data anywhere else. Codex already shows real usage with no network.")
                 }
                 if let error = model.hooksError {
                     Text(error)

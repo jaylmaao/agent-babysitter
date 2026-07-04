@@ -131,20 +131,68 @@ public enum HooksInstaller {
     }
 }
 
-/// Parses one line of the Precision-mode event log (raw Claude Code hook
-/// input JSON appended by our hook command).
+/// Parses one line of the event log. Hook events and status-line updates
+/// share the log; a hook line carries `hook_event_name`, a status-line line
+/// doesn't, and either may carry `rate_limits` — Claude Code includes the
+/// subscription 5-hour window in both payloads, which is how the app shows a
+/// real usage % with zero network.
 public enum HookEventParser {
 
-    public static func parse(line: Data) -> (sessionID: String, kind: HookSignal.Kind)? {
-        guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
-              let sessionID = object["session_id"] as? String,
-              let eventName = object["hook_event_name"] as? String else {
+    public struct Event {
+        public let signal: (sessionID: String, kind: HookSignal.Kind)?
+        public let usage: UsageLimitSnapshot?
+    }
+
+    public static func parse(line: Data) -> Event? {
+        guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else {
             return nil
         }
-        switch eventName {
-        case "Notification": return (sessionID, .waitingForInput)
-        case "Stop": return (sessionID, .turnCompleted)
-        default: return nil
+
+        var signal: (String, HookSignal.Kind)?
+        if let sessionID = object["session_id"] as? String {
+            switch object["hook_event_name"] as? String {
+            case "Notification": signal = (sessionID, .waitingForInput)
+            case "Stop": signal = (sessionID, .turnCompleted)
+            default: break
+            }
         }
+
+        let usage = usageSnapshot(from: object)
+        guard signal != nil || usage != nil else { return nil }
+        return Event(signal: signal, usage: usage)
+    }
+
+    /// `rate_limits.five_hour` as Claude Code emits it: `used_percentage`
+    /// 0–100 plus an ISO-8601 or epoch `resets_at`.
+    static func usageSnapshot(from object: [String: Any]) -> UsageLimitSnapshot? {
+        guard let rateLimits = object["rate_limits"] as? [String: Any],
+              let fiveHour = rateLimits["five_hour"] as? [String: Any],
+              let usedPercent = doubleValue(fiveHour["used_percentage"]) else {
+            return nil
+        }
+        return UsageLimitSnapshot(usedPercent: min(max(usedPercent, 0), 100),
+                                  windowMinutes: 300,
+                                  resetsAt: date(from: fiveHour["resets_at"]),
+                                  capturedAt: Date(),
+                                  plan: "subscription")
+    }
+
+    private static func doubleValue(_ value: Any?) -> Double? {
+        if let d = value as? Double { return d }
+        if let i = value as? Int { return Double(i) }
+        return nil
+    }
+
+    private static func date(from value: Any?) -> Date? {
+        if let epoch = doubleValue(value) { return Date(timeIntervalSince1970: epoch) }
+        if let text = value as? String {
+            return ISO8601DateFormatter().date(from: text)
+                ?? {
+                    let f = ISO8601DateFormatter()
+                    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    return f.date(from: text)
+                }()
+        }
+        return nil
     }
 }

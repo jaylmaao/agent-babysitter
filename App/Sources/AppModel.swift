@@ -45,6 +45,13 @@ final class AppModel: ObservableObject {
             applyPrecisionMode()
         }
     }
+    @Published var claudeUsageMeterEnabled: Bool {
+        didSet {
+            guard oldValue != claudeUsageMeterEnabled else { return }
+            UserDefaults.standard.set(claudeUsageMeterEnabled, forKey: "claudeUsageMeterEnabled")
+            applyClaudeUsageMeter()
+        }
+    }
     @Published var launchAtLogin: Bool {
         didSet {
             guard oldValue != launchAtLogin else { return }
@@ -70,6 +77,8 @@ final class AppModel: ObservableObject {
     private let liveUsageService = LiveUsageService()
     private var liveUsage: [String: UsageLimitSnapshot] = [:]
     private var liveUsageTimer: Timer?
+    /// Zero-network Claude usage captured from status-line/hook events.
+    private var capturedUsage: [String: UsageLimitSnapshot] = [:]
 
     init() {
         let defaults = UserDefaults.standard
@@ -93,6 +102,7 @@ final class AppModel: ObservableObject {
         notifyDone = defaults.bool(forKey: "notifyDone")
         notifyStalled = defaults.bool(forKey: "notifyStalled")
         precisionModeEnabled = precision
+        claudeUsageMeterEnabled = defaults.bool(forKey: "claudeUsageMeterEnabled")
         liveUsageEnabled = defaults.bool(forKey: "liveUsageEnabled")
         launchAtLogin = SMAppService.mainApp.status == .enabled
         notificationManager.rowProvider = { [weak self] sessionID in
@@ -101,6 +111,7 @@ final class AppModel: ObservableObject {
         notificationManager.primeAuthorization()
         start()
         if precision { applyPrecisionMode() }
+        if claudeUsageMeterEnabled { applyClaudeUsageMeter() }
         if liveUsageEnabled { Task { await refreshLiveUsage() } }
     }
 
@@ -243,8 +254,20 @@ final class AppModel: ObservableObject {
         let degraded = await store.isProcessDetectionDegraded
         let todayCost = await store.todayCost()
         var usageLimits = await store.usageLimits()
-        // Live readings (opt-in) override on-disk for the same agent.
-        for (agentID, live) in liveUsage { usageLimits[agentID] = live }
+        // Layer readings: on-disk, then zero-network captures from the
+        // status-line/hook meter, then opt-in live fetches — for the same
+        // agent the newest capture wins. A captured % older than the whole
+        // 5h window says nothing about the current window; drop it.
+        capturedUsage = capturedUsage.filter {
+            Date().timeIntervalSince($0.value.capturedAt) < 300 * 60
+        }
+        for candidates in [capturedUsage, liveUsage] {
+            for (agentID, snapshot) in candidates {
+                if let current = usageLimits[agentID], current.usedPercent != nil,
+                   current.capturedAt > snapshot.capturedAt { continue }
+                usageLimits[agentID] = snapshot
+            }
+        }
         self.rows = rows
         self.usageLimits = usageLimits
         self.summary = summary
@@ -292,26 +315,66 @@ final class AppModel: ObservableObject {
                 return
             }
         } else {
-            hookWatcher?.stop()
-            hookWatcher = nil
+            stopSharedHookPipelineIfUnused()
+        }
+        applyStoreConfiguration()
+    }
+
+    /// The zero-network Claude usage meter: a status-line helper (terminal
+    /// sessions, updates continuously) plus the same hook entries Precision
+    /// mode uses (desktop app sessions, updates each turn). Both write to the
+    /// one event log the watcher tails.
+    private func applyClaudeUsageMeter() {
+        hooksError = nil
+        if claudeUsageMeterEnabled {
             do {
-                try HooksInstaller.uninstall()
+                try StatusLineInstaller.install()
+                try HooksInstaller.install()
+                startHookWatcher()
+            } catch {
+                hooksError = error.localizedDescription
+                claudeUsageMeterEnabled = false
+            }
+        } else {
+            do {
+                try StatusLineInstaller.uninstall()
             } catch {
                 hooksError = error.localizedDescription
             }
+            capturedUsage = [:]
+            stopSharedHookPipelineIfUnused()
+            Task { await refresh() }
         }
-        applyStoreConfiguration()
+    }
+
+    /// Hooks and the event watcher are shared by Precision mode and the
+    /// usage meter — tear them down only when neither feature needs them.
+    private func stopSharedHookPipelineIfUnused() {
+        guard !precisionModeEnabled, !claudeUsageMeterEnabled else { return }
+        hookWatcher?.stop()
+        hookWatcher = nil
+        do {
+            try HooksInstaller.uninstall()
+        } catch {
+            hooksError = error.localizedDescription
+        }
     }
 
     private func startHookWatcher() {
         guard hookWatcher == nil else { return }
         let store = store
-        let watcher = HookEventWatcher { [weak self] sessionID, signal in
+        let watcher = HookEventWatcher(onSignal: { [weak self] sessionID, signal in
             Task {
                 await store.hookSignalReceived(sessionID: sessionID, signal)
                 await self?.refresh()
             }
-        }
+        }, onUsage: { [weak self] snapshot in
+            Task { @MainActor in
+                guard let self, self.claudeUsageMeterEnabled else { return }
+                self.capturedUsage["claude-code"] = snapshot
+                await self.refresh()
+            }
+        })
         watcher.start()
         hookWatcher = watcher
     }

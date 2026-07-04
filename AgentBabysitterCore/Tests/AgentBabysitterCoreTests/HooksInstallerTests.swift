@@ -124,20 +124,136 @@ final class HookEventParserTests: XCTestCase {
         "message":"Claude needs your permission to use Bash"}
         """
         let event = HookEventParser.parse(line: Data(line.utf8))
-        XCTAssertEqual(event?.sessionID, "abc-123")
-        XCTAssertEqual(event?.kind, .waitingForInput)
+        XCTAssertEqual(event?.signal?.sessionID, "abc-123")
+        XCTAssertEqual(event?.signal?.kind, .waitingForInput)
+        XCTAssertNil(event?.usage)
     }
 
     func testParsesStopEvent() {
         let line = "{\"session_id\":\"abc-123\",\"hook_event_name\":\"Stop\",\"stop_hook_active\":false}"
         let event = HookEventParser.parse(line: Data(line.utf8))
-        XCTAssertEqual(event?.sessionID, "abc-123")
-        XCTAssertEqual(event?.kind, .turnCompleted)
+        XCTAssertEqual(event?.signal?.sessionID, "abc-123")
+        XCTAssertEqual(event?.signal?.kind, .turnCompleted)
     }
 
     func testIgnoresUnknownEventsAndGarbage() {
         XCTAssertNil(HookEventParser.parse(line: Data("{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"x\"}".utf8)))
         XCTAssertNil(HookEventParser.parse(line: Data("garbage".utf8)))
         XCTAssertNil(HookEventParser.parse(line: Data()))
+    }
+
+    /// A status-line update: no hook_event_name, but rate_limits present.
+    func testParsesUsageFromStatusLineUpdate() {
+        let line = """
+        {"session_id":"abc-123","model":{"id":"claude-opus-4-8"},"cost":{"total_cost_usd":1.2},\
+        "rate_limits":{"five_hour":{"used_percentage":34.5,"resets_at":"2026-07-05T18:00:00Z"},\
+        "seven_day":{"used_percentage":12}}}
+        """
+        let event = HookEventParser.parse(line: Data(line.utf8))
+        XCTAssertNil(event?.signal)
+        XCTAssertEqual(event?.usage?.usedPercent, 34.5)
+        XCTAssertEqual(event?.usage?.windowMinutes, 300)
+        XCTAssertEqual(event?.usage?.resetsAt,
+                       ISO8601DateFormatter().date(from: "2026-07-05T18:00:00Z"))
+        XCTAssertEqual(event?.usage?.isLive, false)
+    }
+
+    /// A Stop hook that also carries rate_limits yields both.
+    func testStopEventWithRateLimitsYieldsSignalAndUsage() {
+        let line = """
+        {"session_id":"abc-123","hook_event_name":"Stop",\
+        "rate_limits":{"five_hour":{"used_percentage":80,"resets_at":1751731200}}}
+        """
+        let event = HookEventParser.parse(line: Data(line.utf8))
+        XCTAssertEqual(event?.signal?.kind, .turnCompleted)
+        XCTAssertEqual(event?.usage?.usedPercent, 80)
+        XCTAssertEqual(event?.usage?.resetsAt, Date(timeIntervalSince1970: 1_751_731_200))
+    }
+
+    func testUsagePercentIsClampedAndMalformedIgnored() {
+        let over = HookEventParser.usageSnapshot(from:
+            ["rate_limits": ["five_hour": ["used_percentage": 250.0]]])
+        XCTAssertEqual(over?.usedPercent, 100)
+        XCTAssertNil(HookEventParser.usageSnapshot(from:
+            ["rate_limits": ["five_hour": ["used_percentage": "lots"]]]))
+        XCTAssertNil(HookEventParser.usageSnapshot(from: ["rate_limits": ["five_hour": [:]]]))
+    }
+}
+
+final class StatusLineInstallerTests: XCTestCase {
+
+    private func object(_ data: Data) throws -> [String: Any] {
+        try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    func testInstallIntoFreshSettingsCapturesWithoutPassThrough() throws {
+        let result = try StatusLineInstaller.settingsWithStatusLineInstalled(
+            nil, eventLogPath: "/tmp/events.jsonl", originalCommandPath: "/tmp/orig.sh")
+        let statusLine = try XCTUnwrap(object(result.settings)["statusLine"] as? [String: Any])
+        let command = try XCTUnwrap(statusLine["command"] as? String)
+        XCTAssertEqual(statusLine["type"] as? String, "command")
+        XCTAssertTrue(command.contains("/tmp/events.jsonl"))
+        XCTAssertFalse(command.contains("/tmp/orig.sh"), "nothing to pass through to")
+        XCTAssertTrue(command.contains(StatusLineInstaller.marker))
+        XCTAssertNil(result.backup)
+        XCTAssertNil(result.originalCommand)
+    }
+
+    func testInstallWrapsExistingStatusLineAndBacksItUp() throws {
+        let existing = Data("""
+        {"statusLine":{"type":"command","command":"~/my-statusline.sh","padding":0},"model":"opus"}
+        """.utf8)
+        let result = try StatusLineInstaller.settingsWithStatusLineInstalled(
+            existing, eventLogPath: "/tmp/events.jsonl", originalCommandPath: "/tmp/orig.sh")
+
+        let root = try object(result.settings)
+        XCTAssertEqual(root["model"] as? String, "opus", "unrelated settings untouched")
+        let statusLine = try XCTUnwrap(root["statusLine"] as? [String: Any])
+        let command = try XCTUnwrap(statusLine["command"] as? String)
+        XCTAssertTrue(command.contains("/tmp/orig.sh"), "must pass through to the original")
+        XCTAssertEqual(statusLine["padding"] as? Int, 0, "extra keys preserved")
+        XCTAssertEqual(result.originalCommand, "~/my-statusline.sh")
+        let backup = try object(try XCTUnwrap(result.backup))
+        XCTAssertEqual(backup["command"] as? String, "~/my-statusline.sh")
+    }
+
+    func testInstallIsIdempotent() throws {
+        let first = try StatusLineInstaller.settingsWithStatusLineInstalled(nil)
+        let second = try StatusLineInstaller.settingsWithStatusLineInstalled(first.settings)
+        XCTAssertEqual(first.settings, second.settings)
+        XCTAssertNil(second.backup)
+    }
+
+    func testRemovalRestoresBackedUpOriginal() throws {
+        let existing = Data("""
+        {"statusLine":{"type":"command","command":"~/my-statusline.sh","padding":0}}
+        """.utf8)
+        let installed = try StatusLineInstaller.settingsWithStatusLineInstalled(existing)
+        let restored = try StatusLineInstaller.settingsWithStatusLineRemoved(
+            installed.settings, backup: installed.backup)
+        let statusLine = try XCTUnwrap(object(restored)["statusLine"] as? [String: Any])
+        XCTAssertEqual(statusLine["command"] as? String, "~/my-statusline.sh")
+        XCTAssertEqual(statusLine["padding"] as? Int, 0)
+    }
+
+    func testRemovalWithoutBackupDeletesKey() throws {
+        let installed = try StatusLineInstaller.settingsWithStatusLineInstalled(nil)
+        let removed = try StatusLineInstaller.settingsWithStatusLineRemoved(
+            installed.settings, backup: nil)
+        XCTAssertNil(try object(removed)["statusLine"])
+    }
+
+    func testRemovalNeverTouchesForeignStatusLine() throws {
+        let foreign = Data("{\"statusLine\":{\"type\":\"command\",\"command\":\"mine.sh\"}}".utf8)
+        let removed = try StatusLineInstaller.settingsWithStatusLineRemoved(foreign, backup: nil)
+        let statusLine = try XCTUnwrap(object(removed)["statusLine"] as? [String: Any])
+        XCTAssertEqual(statusLine["command"] as? String, "mine.sh")
+    }
+
+    func testMalformedSettingsThrowBeforeAnyWrite() {
+        XCTAssertThrowsError(
+            try StatusLineInstaller.settingsWithStatusLineInstalled(Data("not json".utf8)))
+        XCTAssertThrowsError(
+            try StatusLineInstaller.settingsWithStatusLineRemoved(Data("not json".utf8), backup: nil))
     }
 }
