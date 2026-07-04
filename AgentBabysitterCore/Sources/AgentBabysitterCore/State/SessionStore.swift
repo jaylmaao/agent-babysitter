@@ -285,6 +285,18 @@ public actor SessionStore {
             where adapter.id.hasPrefix("antigravity") && latest[adapter.id] == nil {
                 latest[adapter.id] = usage
             }
+            // The Google AI plan covers Gemini too -- but the % above is
+            // Antigravity's Code Assist quota, NOT the Gemini app's limits
+            // (which Google keeps server-side only; verified: no usage data
+            // exists anywhere in the app's local stores). Plan tier only.
+            if let plan = usage.plan {
+                for adapter in configuration.adapters
+                where adapter.id.hasPrefix("gemini") && latest[adapter.id] == nil {
+                    latest[adapter.id] = UsageLimitSnapshot(
+                        usedPercent: nil, windowMinutes: 300, resetsAt: nil,
+                        capturedAt: usage.capturedAt, plan: plan)
+                }
+            }
         }
         return latest
     }

@@ -226,7 +226,7 @@ struct MenuContent: View {
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                             .frame(width: 44, alignment: .trailing)
-                            .help("Only the plan tier is available offline right now — the % appears once the agent syncs its quota to disk.")
+                            .help(entry.id.hasPrefix("gemini") ? "Gemini keeps its usage limits on Google's servers only — nothing is stored on your Mac. The plan tier comes from your Google account." : "Only the plan tier is available offline right now — the % appears once the agent syncs its quota to disk.")
                     } else if let resets = limit.resetsAt, resets < Date() {
                         ProgressView(value: 0)
                             .tint(.green)
