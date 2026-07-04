@@ -5,3 +5,4 @@ DerivedData/
 *.xcuserstate
 .swiftpm/
 AgentBabysitter.xcodeproj/
+App/Info.plist

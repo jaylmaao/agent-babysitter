@@ -13,6 +13,14 @@ targets:
     platform: macOS
     sources:
       - App/Sources
+      - path: App/Resources
+        buildPhase: resources
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleIconFile: AppIcon
+        LSUIElement: true
+        NSHumanReadableCopyright: ""
     dependencies:
       - package: AgentBabysitterCore
     settings:
@@ -21,9 +29,6 @@ targets:
         MARKETING_VERSION: 0.1.0
         CURRENT_PROJECT_VERSION: 1
         SWIFT_VERSION: "6.0"
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_LSUIElement: YES        # menu bar only, no dock icon
-        INFOPLIST_KEY_NSHumanReadableCopyright: ""
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "-"               # ad-hoc until Developer ID lands
         ENABLE_HARDENED_RUNTIME: YES
