@@ -11,12 +11,18 @@ final class AppModel: ObservableObject {
     @Published private(set) var summary = MenuBarSummary(worstState: nil, activeCount: 0)
     @Published private(set) var processDetectionDegraded = false
     @Published private(set) var claudeDirectoryMissing = false
+    @Published var notificationsMuted: Bool {
+        didSet { UserDefaults.standard.set(notificationsMuted, forKey: "notificationsMuted") }
+    }
 
     private let projectsRoot: URL
     private let store: SessionStore
     private let processWatcher: ProcessWatcher
     private var fsWatcher: FSEventsWatcher?
     private var refreshTimer: Timer?
+    private var notificationPlanner = NotificationPlanner()
+    private let notificationManager = NotificationManager()
+    private let stallThreshold: TimeInterval = 300
 
     init() {
         let root = FileManager.default.homeDirectoryForCurrentUser
@@ -24,6 +30,10 @@ final class AppModel: ObservableObject {
         projectsRoot = root
         store = SessionStore(configuration: .init(projectsRoot: root))
         processWatcher = ProcessWatcher()
+        notificationsMuted = UserDefaults.standard.bool(forKey: "notificationsMuted")
+        notificationManager.rowProvider = { [weak self] sessionID in
+            self?.rows.first { $0.id == sessionID }
+        }
         start()
     }
 
@@ -87,5 +97,11 @@ final class AppModel: ObservableObject {
         self.rows = rows
         self.summary = summary
         self.processDetectionDegraded = degraded
+
+        let events = notificationPlanner.events(for: rows)
+        notificationManager.deliver(events, rows: rows,
+                                    muted: notificationsMuted,
+                                    enabledKinds: [.waitingForInput, .turnCompleted, .stalled],
+                                    stallThresholdMinutes: Int(stallThreshold / 60))
     }
 }

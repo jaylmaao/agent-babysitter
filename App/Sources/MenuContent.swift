@@ -17,6 +17,7 @@ struct MenuContent: View {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(model.rows) { row in
                             SessionRowView(row: row)
+                                .onTapGesture { TerminalFocuser.focusSession(row) }
                         }
                     }
                     .padding(.vertical, 6)
@@ -39,6 +40,13 @@ struct MenuContent: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
+                Button {
+                    model.notificationsMuted.toggle()
+                } label: {
+                    Image(systemName: model.notificationsMuted ? "bell.slash" : "bell")
+                }
+                .buttonStyle(.borderless)
+                .help(model.notificationsMuted ? "Notifications muted" : "Mute notifications")
                 Button("Quit") { NSApp.terminate(nil) }
                     .buttonStyle(.borderless)
                     .font(.caption)
