@@ -52,9 +52,13 @@ disabling removes only our entries.
 - **Costs are estimates at API list prices** — on subscription plans this is
   API-equivalent value, not spend. Sonnet 5 uses sticker pricing (intro rate
   runs through 2026-08-31).
-- **No auto-update yet** (Sparkle planned once Developer ID signing lands);
-  no global hotkey (SwiftUI provides no API to open a MenuBarExtra
-  programmatically).
+- **Beta builds are unsigned** (Developer ID deferred for now): downloaded
+  DMGs trigger Gatekeeper — open once, then System Settings → Privacy &
+  Security → "Open Anyway". Instructions ship inside the DMG. The build
+  script auto-upgrades to signed + notarized the moment a "Developer ID
+  Application" identity exists in the keychain.
+- **No auto-update yet** (Sparkle planned once signing lands); no global
+  hotkey (SwiftUI provides no API to open a MenuBarExtra programmatically).
 
 ## Status
 

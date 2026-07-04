@@ -44,6 +44,20 @@ codesign --verify --deep --strict "$APP"
 STAGING=$(mktemp -d)
 cp -R "$APP" "$STAGING/"
 ln -s /Applications "$STAGING/Applications"
+if [ -z "$SIGN_IDENTITY" ]; then
+    # Unsigned beta: downloaded copies get quarantined and macOS blocks the
+    # first launch — ship the workaround with the DMG.
+    cat > "$STAGING/How to install (read me).txt" <<'TXT'
+Agent Babysitter beta — unsigned build
+
+1. Drag AgentBabysitter.app into the Applications folder.
+2. Open it once. macOS will say it "could not verify" the app — close that.
+3. Go to System Settings > Privacy & Security, scroll down, and click
+   "Open Anyway" next to AgentBabysitter, then confirm.
+
+You only have to do this once. Signed builds will remove this step.
+TXT
+fi
 rm -f "$DMG"
 hdiutil create -volname "Agent Babysitter" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
 rm -rf "$STAGING"
