@@ -201,6 +201,8 @@ enum UISnapshots {
                                 activeMinutes: 214, sessions: 9)])
         results.append(("stats-single-day",
                         AnyView(StatsView(model: singleDayModel, initialRange: .week))))
+        results.append(("stats-single-day-alltime",
+                        AnyView(StatsView(model: singleDayModel, initialRange: .allTime))))
 
         // Settings (Form/TabView) is AppKit-backed and invisible to
         // ImageRenderer — verified by eye in the running app instead.

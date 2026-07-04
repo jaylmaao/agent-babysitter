@@ -151,6 +151,13 @@ struct StatsView: View {
         }
     }
 
+    /// At most ~6 axis labels regardless of how much history exists.
+    private var thinnedBucketStarts: [Date] {
+        let starts = buckets.map(\.start)
+        let step = max(1, Int((Double(starts.count) / 6).rounded(.up)))
+        return starts.enumerated().compactMap { $0.offset % step == 0 ? $0.element : nil }
+    }
+
     private var unitName: String {
         switch range.unit {
         case .day: "day"
@@ -179,19 +186,22 @@ struct StatsView: View {
                     .cornerRadius(2)
             }
             .chartXAxis {
+                // Explicit labels at (thinned) bucket starts: automatic tick
+                // generation over a short domain repeats one label four times
+                // ("Jul 26 · Jul 26 · Jul 26 · Jul 26").
                 switch range {
                 case .today, .week:
                     AxisMarks(values: .stride(by: .day)) {
                         AxisValueLabel(format: .dateTime.weekday(.narrow), centered: true)
                     }
                 case .threeMonths:
-                    AxisMarks(values: .stride(by: .month)) {
-                        AxisValueLabel(format: .dateTime.month(.abbreviated))
+                    AxisMarks(values: thinnedBucketStarts) {
+                        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
                         AxisGridLine()
                     }
                 case .allTime:
-                    AxisMarks(values: .automatic) {
-                        AxisValueLabel(format: .dateTime.month(.abbreviated).year(.twoDigits))
+                    AxisMarks(values: thinnedBucketStarts) {
+                        AxisValueLabel(format: .dateTime.month(.abbreviated).year())
                         AxisGridLine()
                     }
                 }
