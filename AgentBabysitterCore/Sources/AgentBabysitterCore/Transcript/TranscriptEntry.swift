@@ -100,7 +100,7 @@ public struct UserPayload: Equatable, Sendable {
 
 /// A subscription rate-limit reading an agent wrote into its transcript
 /// (Codex embeds one per token_count). `usedPercent` is 0-100 of the window.
-public struct UsageLimitSnapshot: Equatable, Sendable {
+public struct UsageLimitSnapshot: Equatable, Sendable, Codable {
     /// 0-100 of the window. nil when the plan is known but the percentage
     /// isn't published anywhere readable (e.g. Antigravity offline).
     public let usedPercent: Double?
@@ -110,15 +110,21 @@ public struct UsageLimitSnapshot: Equatable, Sendable {
     public let plan: String?
     /// True when fetched over the network (opt-in), false when read from disk.
     public let isLive: Bool
+    /// The 7-day window, when the agent publishes one alongside the 5-hour.
+    public let weeklyUsedPercent: Double?
+    public let weeklyResetsAt: Date?
 
     public init(usedPercent: Double?, windowMinutes: Int, resetsAt: Date?,
-                capturedAt: Date, plan: String?, isLive: Bool = false) {
+                capturedAt: Date, plan: String?, isLive: Bool = false,
+                weeklyUsedPercent: Double? = nil, weeklyResetsAt: Date? = nil) {
         self.usedPercent = usedPercent
         self.windowMinutes = windowMinutes
         self.resetsAt = resetsAt
         self.capturedAt = capturedAt
         self.plan = plan
         self.isLive = isLive
+        self.weeklyUsedPercent = weeklyUsedPercent
+        self.weeklyResetsAt = weeklyResetsAt
     }
 }
 

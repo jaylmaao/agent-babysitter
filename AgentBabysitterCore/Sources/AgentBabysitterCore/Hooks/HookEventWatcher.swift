@@ -26,9 +26,13 @@ public final class HookEventWatcher: @unchecked Sendable {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
         // Events written while the app wasn't running are stale by design —
-        // truncate so the log can't grow without bound across sessions.
+        // truncate so the log can't grow without bound across sessions, and
+        // keep it private (it carries session ids and usage data; the shell
+        // writers can't guarantee the mode of a pre-existing file).
         if FileManager.default.fileExists(atPath: eventLogURL.path) {
             try? FileHandle(forWritingTo: eventLogURL).truncate(atOffset: 0)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                                   ofItemAtPath: eventLogURL.path)
             BabysitterLog.hooks.info("truncated stale event log")
         }
         offset = (try? FileManager.default.attributesOfItem(atPath: eventLogURL.path))
@@ -46,6 +50,11 @@ public final class HookEventWatcher: @unchecked Sendable {
         fsWatcher?.stop()
         fsWatcher = nil
     }
+
+    /// Status-line updates arrive every few hundred ms during streaming; cap
+    /// the log so a long-running app can't grow it without bound. Truncating
+    /// after a drain loses at most one in-flight line, which self-heals.
+    static let maxLogBytes: UInt64 = 5 * 1024 * 1024
 
     private func drain() {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: eventLogURL.path),
@@ -71,6 +80,13 @@ public final class HookEventWatcher: @unchecked Sendable {
             if let usage = event.usage {
                 onUsage?(usage)
             }
+        }
+
+        if offset > Self.maxLogBytes {
+            try? FileHandle(forWritingTo: eventLogURL).truncate(atOffset: 0)
+            offset = 0
+            lineBuffer = Data()
+            BabysitterLog.hooks.info("event log hit size cap; truncated")
         }
     }
 }

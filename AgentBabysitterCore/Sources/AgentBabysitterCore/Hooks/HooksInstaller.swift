@@ -27,9 +27,9 @@ public enum HooksInstaller {
 
     private static func hookCommand(eventLogPath: String) -> String {
         // Hook stdin carries one JSON event; append it as a line to the event
-        // log (file-drop transport, no sockets). The trailing comment is the
-        // removal marker.
-        "mkdir -p \"$(dirname '\(eventLogPath)')\" && { cat; echo; } >> '\(eventLogPath)' #\(marker)"
+        // log (file-drop transport, no sockets). umask keeps a freshly
+        // created log private. The trailing comment is the removal marker.
+        "umask 077; mkdir -p \"$(dirname '\(eventLogPath)')\" && { cat; echo; } >> '\(eventLogPath)' #\(marker)"
     }
 
     // MARK: - Pure transforms (testable without touching the filesystem)
@@ -44,13 +44,30 @@ public enum HooksInstaller {
         var root = try parse(data)
         var hooks = root["hooks"] as? [String: Any] ?? [:]
 
+        let command = hookCommand(eventLogPath: eventLogPath)
         for event in hookEvents {
             var entries = hooks[event] as? [[String: Any]] ?? []
-            if !entries.contains(where: isOurs) {
-                entries.append([
-                    "hooks": [["type": "command",
-                               "command": hookCommand(eventLogPath: eventLogPath)]]
-                ])
+            if entries.contains(where: isOurs) {
+                // Upgrade our entry in place when the command template has
+                // changed since it was installed; never touch other entries.
+                entries = entries.map { entry in
+                    guard isOurs(entry), var inner = entry["hooks"] as? [[String: Any]] else {
+                        return entry
+                    }
+                    inner = inner.map { hook in
+                        guard (hook["command"] as? String)?.contains(marker) == true else {
+                            return hook
+                        }
+                        var hook = hook
+                        hook["command"] = command
+                        return hook
+                    }
+                    var entry = entry
+                    entry["hooks"] = inner
+                    return entry
+                }
+            } else {
+                entries.append(["hooks": [["type": "command", "command": command]]])
             }
             hooks[event] = entries
         }
@@ -162,19 +179,23 @@ public enum HookEventParser {
         return Event(signal: signal, usage: usage)
     }
 
-    /// `rate_limits.five_hour` as Claude Code emits it: `used_percentage`
-    /// 0–100 plus an ISO-8601 or epoch `resets_at`.
+    /// `rate_limits.five_hour` (plus `seven_day` when present) as Claude Code
+    /// emits them: `used_percentage` 0–100 plus an ISO-8601 or epoch `resets_at`.
     static func usageSnapshot(from object: [String: Any]) -> UsageLimitSnapshot? {
         guard let rateLimits = object["rate_limits"] as? [String: Any],
               let fiveHour = rateLimits["five_hour"] as? [String: Any],
               let usedPercent = doubleValue(fiveHour["used_percentage"]) else {
             return nil
         }
+        let sevenDay = rateLimits["seven_day"] as? [String: Any]
         return UsageLimitSnapshot(usedPercent: min(max(usedPercent, 0), 100),
                                   windowMinutes: 300,
                                   resetsAt: date(from: fiveHour["resets_at"]),
                                   capturedAt: Date(),
-                                  plan: "subscription")
+                                  plan: "subscription",
+                                  weeklyUsedPercent: sevenDay.flatMap { doubleValue($0["used_percentage"]) }
+                                      .map { min(max($0, 0), 100) },
+                                  weeklyResetsAt: sevenDay.flatMap { date(from: $0["resets_at"]) })
     }
 
     private static func doubleValue(_ value: Any?) -> Double? {

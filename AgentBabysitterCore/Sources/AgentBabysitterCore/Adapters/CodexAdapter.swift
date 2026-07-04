@@ -248,12 +248,17 @@ enum CodexRolloutParser {
                    let usedPercent = primary["used_percent"] as? Double {
                     let resets = (primary["resets_at"] as? Double)
                         .map { Date(timeIntervalSince1970: $0) }
+                    // Secondary is the weekly window when present.
+                    let secondary = rateLimits["secondary"] as? [String: Any]
                     limit = UsageLimitSnapshot(
                         usedPercent: usedPercent,
                         windowMinutes: primary["window_minutes"] as? Int ?? 300,
                         resetsAt: resets,
                         capturedAt: timestamp ?? Date(),
-                        plan: rateLimits["plan_type"] as? String)
+                        plan: rateLimits["plan_type"] as? String,
+                        weeklyUsedPercent: secondary?["used_percent"] as? Double,
+                        weeklyResetsAt: (secondary?["resets_at"] as? Double)
+                            .map { Date(timeIntervalSince1970: $0) })
                 }
                 // Usage-only: phase-neutral in the reducer (arrives after
                 // task_complete). Model pricing is unknown by design — token

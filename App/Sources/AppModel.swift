@@ -18,11 +18,22 @@ final class AppModel: ObservableObject {
     @Published private(set) var installedAgents: [(id: String, name: String)] = []
     /// Agents with a live process right now — their app/CLI is open.
     @Published private(set) var runningAgentIDs: Set<String> = []
+    /// Observed daily cost totals, oldest first, at most 7 days. Accumulated
+    /// locally — the store only retains 24h of sessions.
+    @Published private(set) var costHistory: [(day: Date, dollars: Double)] = []
     @Published var liveUsageEnabled: Bool {
         didSet {
             UserDefaults.standard.set(liveUsageEnabled, forKey: "liveUsageEnabled")
-            Task { await self.refreshLiveUsage() }
+            Task { await self.refreshLiveUsage(forceFetch: true) }
         }
+    }
+    /// Why the last live fetch produced nothing — shown under the toggle.
+    @Published private(set) var liveUsageStatus: String?
+    @Published var notifyLimit: Bool {
+        didSet { UserDefaults.standard.set(notifyLimit, forKey: "notifyLimit") }
+    }
+    @Published var limitAlertThreshold: Double {
+        didSet { UserDefaults.standard.set(limitAlertThreshold, forKey: "limitAlertThreshold") }
     }
     @Published var notificationsMuted: Bool {
         didSet { UserDefaults.standard.set(notificationsMuted, forKey: "notificationsMuted") }
@@ -82,14 +93,24 @@ final class AppModel: ObservableObject {
     private var liveUsage: [String: UsageLimitSnapshot] = [:]
     private var liveUsageTimer: Timer?
     /// Zero-network Claude usage captured from status-line/hook events.
-    private var capturedUsage: [String: UsageLimitSnapshot] = [:]
+    /// Persisted so an app restart doesn't lose a still-valid reading.
+    private var capturedUsage: [String: UsageLimitSnapshot] = [:] {
+        didSet {
+            let data = try? JSONEncoder().encode(capturedUsage)
+            UserDefaults.standard.set(data, forKey: "capturedUsage")
+        }
+    }
+    /// Limit alerts fire once per window per agent; keyed by reset time.
+    private var alertedLimitWindows: [String: Date] = [:]
 
     init() {
         let defaults = UserDefaults.standard
         defaults.register(defaults: ["stallThresholdMinutes": 5.0,
                                      "notifyWaiting": true,
                                      "notifyDone": true,
-                                     "notifyStalled": true])
+                                     "notifyStalled": true,
+                                     "notifyLimit": true,
+                                     "limitAlertThreshold": 80.0])
         let root = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/projects")
         projectsRoot = root
@@ -105,10 +126,16 @@ final class AppModel: ObservableObject {
         notifyWaiting = defaults.bool(forKey: "notifyWaiting")
         notifyDone = defaults.bool(forKey: "notifyDone")
         notifyStalled = defaults.bool(forKey: "notifyStalled")
+        notifyLimit = defaults.bool(forKey: "notifyLimit")
+        limitAlertThreshold = defaults.double(forKey: "limitAlertThreshold")
         precisionModeEnabled = precision
         claudeUsageMeterEnabled = defaults.bool(forKey: "claudeUsageMeterEnabled")
         liveUsageEnabled = defaults.bool(forKey: "liveUsageEnabled")
         launchAtLogin = SMAppService.mainApp.status == .enabled
+        if let data = defaults.data(forKey: "capturedUsage"),
+           let saved = try? JSONDecoder().decode([String: UsageLimitSnapshot].self, from: data) {
+            capturedUsage = saved.filter { Date().timeIntervalSince($0.value.capturedAt) < 300 * 60 }
+        }
         notificationManager.rowProvider = { [weak self] sessionID in
             self?.rows.first { $0.id == sessionID }
         }
@@ -116,24 +143,35 @@ final class AppModel: ObservableObject {
         start()
         if precision { applyPrecisionMode() }
         if claudeUsageMeterEnabled { applyClaudeUsageMeter() }
-        if liveUsageEnabled { Task { await refreshLiveUsage() } }
+        if liveUsageEnabled { Task { await refreshLiveUsage(forceFetch: true) } }
     }
 
-    /// Poll live usage on a slow cadence while enabled (5h windows move slowly).
-    private func refreshLiveUsage() async {
+    /// Poll live usage on a slow cadence while enabled. Each probe costs one
+    /// haiku token of the very quota it measures, so the periodic poll only
+    /// runs while Claude is actually in use; toggling the setting fetches
+    /// once immediately so the row populates.
+    private func refreshLiveUsage(forceFetch: Bool = false) async {
         liveUsageTimer?.invalidate()
         liveUsageTimer = nil
         guard liveUsageEnabled else {
             liveUsage = [:]
+            liveUsageStatus = nil
             await refresh()
             return
         }
-        liveUsage = await liveUsageService.fetch(enabled: true)
-        await refresh()
+        if forceFetch || runningAgentIDs.contains("claude-code") {
+            let result = await liveUsageService.fetch(enabled: true)
+            liveUsage = result.limits
+            liveUsageStatus = result.failure
+            await refresh()
+        }
         liveUsageTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.liveUsageEnabled else { return }
-                self.liveUsage = await self.liveUsageService.fetch(enabled: true)
+                guard let self, self.liveUsageEnabled,
+                      self.runningAgentIDs.contains("claude-code") else { return }
+                let result = await self.liveUsageService.fetch(enabled: true)
+                self.liveUsage = result.limits
+                self.liveUsageStatus = result.failure
                 await self.refresh()
             }
         }
@@ -285,6 +323,8 @@ final class AppModel: ObservableObject {
         UserDefaults.standard.set(
             "installed: \(installedAgents.map(\.id).sorted().joined(separator: " ")) | running: \(runningAgentIDs.sorted().joined(separator: " "))",
             forKey: "debugAgents")
+        deliverLimitAlerts(usageLimits)
+        recordCostHistory(todayCost.dollars)
         self.summary = summary
         self.processDetectionDegraded = degraded
         self.todayCost = todayCost
@@ -302,6 +342,43 @@ final class AppModel: ObservableObject {
                                     muted: notificationsMuted,
                                     enabledKinds: enabledKinds,
                                     stallThresholdMinutes: Int(stallThresholdMinutes))
+    }
+
+    /// Fold today's running total into the persisted 7-day history. Max
+    /// guards against dips when old sessions prune out mid-day.
+    private func recordCostHistory(_ todayDollars: Double) {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate]
+        formatter.timeZone = .current  // bucket by the user's day, not UTC
+        var saved = UserDefaults.standard.dictionary(forKey: "costHistory") as? [String: Double] ?? [:]
+        let todayKey = formatter.string(from: Date())
+        saved[todayKey] = max(saved[todayKey] ?? 0, todayDollars)
+        let cutoff = Date().addingTimeInterval(-7 * 86_400)
+        saved = saved.filter { key, _ in
+            formatter.date(from: key).map { $0 > cutoff } ?? false
+        }
+        UserDefaults.standard.set(saved, forKey: "costHistory")
+        costHistory = saved
+            .compactMap { key, dollars in formatter.date(from: key).map { ($0, dollars) } }
+            .sorted { $0.0 < $1.0 }
+    }
+
+    /// Alert once per 5-hour window when an agent crosses the threshold.
+    private func deliverLimitAlerts(_ limits: [String: UsageLimitSnapshot]) {
+        guard notifyLimit, !notificationsMuted else { return }
+        for (agentID, limit) in limits {
+            guard let used = limit.usedPercent, used >= limitAlertThreshold else { continue }
+            // Key the alert to the window so it fires once, and again only
+            // after the window rolls over.
+            let window = limit.resetsAt ?? Date(timeIntervalSince1970:
+                (Date().timeIntervalSince1970 / 18_000).rounded(.down) * 18_000)
+            if let alerted = alertedLimitWindows[agentID], alerted == window { continue }
+            alertedLimitWindows[agentID] = window
+            let name = installedAgents.first { $0.id == agentID }?.name
+                ?? adapters.first { $0.id == agentID }?.displayName ?? agentID
+            notificationManager.deliverLimitAlert(agentName: name, agentID: agentID,
+                                                  usedPercent: used, resetsAt: limit.resetsAt)
+        }
     }
 
     // MARK: - Preferences plumbing

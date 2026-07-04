@@ -5,15 +5,19 @@ import AgentBabysitterCore
 /// calls unless the user enables "Live usage". Only ever talks to each
 /// vendor's canonical host using the user's own existing credential, so a
 /// token can never be sent anywhere unintended. Any failure (offline, no
-/// credential, unexpected shape) yields nil and the row falls back to the
-/// on-disk / "not shared" state; nothing crashes or blocks.
+/// credential, unexpected shape) yields a reason string instead of data —
+/// shown in Settings so the toggle never fails silently.
 ///
-/// Claude Code: the subscription 5-hour window is returned inline in every
-/// `/v1/messages` response as `rate_limits.five_hour.used_percentage`
-/// (present for Pro/Max subscribers). We make one tiny 1-token request to
-/// read it. Credential resolution mirrors the SDK: ANTHROPIC_API_KEY, then
-/// the Claude Code CLI OAuth token in the keychain.
+/// Claude Code: the subscription windows ride on the response headers of a
+/// successful `/v1/messages` call (`anthropic-ratelimit-unified-*`), so the
+/// probe is the smallest valid request — one haiku token. That token counts
+/// against the very quota being measured (disclosed in the toggle copy).
 actor LiveUsageService {
+
+    enum Outcome {
+        case snapshot(UsageLimitSnapshot)
+        case unavailable(reason: String)
+    }
 
     private let session: URLSession
 
@@ -24,54 +28,54 @@ actor LiveUsageService {
         session = URLSession(configuration: config)
     }
 
-    /// Live snapshots per agent id. Empty when disabled or nothing resolved.
-    func fetch(enabled: Bool) async -> [String: UsageLimitSnapshot] {
-        guard enabled else { return [:] }
-        var out: [String: UsageLimitSnapshot] = [:]
-        if let claude = await fetchClaudeCode() {
-            out["claude-code"] = claude
+    /// Live snapshots per agent id, plus a user-readable reason when a
+    /// fetch produced nothing.
+    func fetch(enabled: Bool) async -> (limits: [String: UsageLimitSnapshot], failure: String?) {
+        guard enabled else { return ([:], nil) }
+        switch await fetchClaudeCode() {
+        case .snapshot(let snapshot):
+            return (["claude-code": snapshot], nil)
+        case .unavailable(let reason):
+            BabysitterLog.process.info("live Claude usage unavailable: \(reason, privacy: .public)")
+            return ([:], reason)
         }
-        return out
     }
 
     // MARK: - Claude Code
 
-    private func fetchClaudeCode() async -> UsageLimitSnapshot? {
-        guard let (credential, planHint) = ClaudeCredential.resolve() else { return nil }
+    private func fetchClaudeCode() async -> Outcome {
+        guard let (credential, planHint) = ClaudeCredential.resolve() else {
+            return .unavailable(reason: "No Claude login found. Open the Claude app, "
+                + "or run /login in the claude CLI, then try again.")
+        }
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         credential.apply(to: &request)
-        // Smallest request that returns the limit: the unified headers ride
-        // only on successful /v1/messages responses (verified live — absent
-        // from 400s, count_tokens, and the response body).
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
             "model": "claude-haiku-4-5",
             "max_tokens": 1,
             "messages": [["role": "user", "content": "hi"]],
         ])
 
-        guard let (_, response) = try? await session.data(for: request),
-              let http = response as? HTTPURLResponse, http.statusCode == 200,
-              let snapshot = Self.snapshot(fromHeadersOf: http, plan: planHint) else {
-            BabysitterLog.process.info("live Claude usage unavailable")
-            return nil
+        guard let (_, response) = try? await session.data(for: request) else {
+            return .unavailable(reason: "Couldn't reach api.anthropic.com — check your connection.")
         }
-        return snapshot
-    }
-
-    /// `anthropic-ratelimit-unified-5h-utilization` is a 0–1 fraction;
-    /// `…-5h-reset` is epoch seconds.
-    static func snapshot(fromHeadersOf http: HTTPURLResponse, plan: String?) -> UsageLimitSnapshot? {
-        guard let text = http.value(forHTTPHeaderField: "anthropic-ratelimit-unified-5h-utilization"),
-              let fraction = Double(text) else { return nil }
-        let resets = http.value(forHTTPHeaderField: "anthropic-ratelimit-unified-5h-reset")
-            .flatMap(Double.init).map(Date.init(timeIntervalSince1970:))
-        return UsageLimitSnapshot(usedPercent: min(max(fraction * 100, 0), 100),
-                                  windowMinutes: 300, resetsAt: resets,
-                                  capturedAt: Date(), plan: plan ?? "subscription",
-                                  isLive: true)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            return .unavailable(reason: "Anthropic returned an error (\(code)). "
+                + "Your login may have expired — open the Claude app once and retry.")
+        }
+        var headers: [String: String] = [:]
+        for (key, value) in http.allHeaderFields {
+            if let key = key as? String, let value = value as? String { headers[key] = value }
+        }
+        guard let snapshot = ClaudeLiveParsing.snapshot(fromHeaders: headers, plan: planHint) else {
+            return .unavailable(reason: "The response had no usage headers — "
+                + "these appear for Pro/Max subscriptions only.")
+        }
+        return .snapshot(snapshot)
     }
 }
 
@@ -90,14 +94,14 @@ private enum ClaudeCredential {
         }
     }
 
-    /// Subscription OAuth sources first — only those reflect the 5h window.
-    /// The desktop app doesn't log the CLI in, but its own claude process
-    /// carries the token in env; reading env of the user's own processes is
-    /// local and lets Live usage work on desktop-only machines. Returns the
-    /// credential plus a plan hint when the source knows it ("pro"/"max").
+    /// Prompt-free source first: the desktop app's own claude process carries
+    /// the OAuth token in env (reading env of the user's own processes is
+    /// local). The CLI keychain item is second — reading it can show a
+    /// one-time macOS keychain prompt. An API key is last: it authenticates
+    /// but usually has no subscription windows.
     static func resolve() -> (ClaudeCredential, plan: String?)? {
-        if let token = keychainOAuthToken() { return (.oauth(token), nil) }
         if let found = runningProcessOAuth() { return (.oauth(found.token), found.plan) }
+        if let token = keychainOAuthToken() { return (.oauth(token), nil) }
         if let key = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"], !key.isEmpty {
             return (.apiKey(key), nil)
         }
@@ -108,24 +112,33 @@ private enum ClaudeCredential {
         guard let pids = shell("/usr/bin/pgrep", ["-x", "claude"]) else { return nil }
         for pid in pids.split(separator: "\n").prefix(8) {
             guard let env = shell("/bin/ps", ["eww", "-o", "command=", "-p", String(pid)]),
-                  let token = envValue("CLAUDE_CODE_OAUTH_TOKEN", inProcessEnv: env),
+                  let token = ClaudeLiveParsing.envValue("CLAUDE_CODE_OAUTH_TOKEN",
+                                                         inProcessEnv: env),
                   token.count > 20 else { continue }
-            return (token, envValue("CLAUDE_CODE_SUBSCRIPTION_TYPE", inProcessEnv: env))
+            return (token, ClaudeLiveParsing.envValue("CLAUDE_CODE_SUBSCRIPTION_TYPE",
+                                                      inProcessEnv: env))
         }
         return nil
     }
 
-    /// `ps eww` output is the command line followed by space-separated
-    /// VAR=value pairs; both values here are single tokens, so splitting on
-    /// whitespace is safe.
-    static func envValue(_ name: String, inProcessEnv output: String) -> String? {
-        for word in output.split(whereSeparator: { $0 == " " || $0 == "\n" }) {
-            if word.hasPrefix("\(name)=") {
-                let value = String(word.dropFirst(name.count + 1))
-                return value.isEmpty ? nil : value
-            }
+    /// The Claude Code CLI stores its OAuth token in the login keychain under
+    /// this service; read the access_token only.
+    private static func keychainOAuthToken() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "Claude Code-credentials",
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data,
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let oauth = root["claudeAiOauth"] as? [String: Any],
+              let token = oauth["accessToken"] as? String else {
+            return nil
         }
-        return nil
+        return token
     }
 
     private static func shell(_ launchPath: String, _ arguments: [String]) -> String? {
@@ -139,26 +152,5 @@ private enum ClaudeCredential {
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         return String(data: data, encoding: .utf8)
-    }
-
-    /// The Claude Code CLI stores its OAuth token in the login keychain under
-    /// this service; read the access_token only.
-    private static func keychainOAuthToken() -> String? {
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "Claude Code-credentials",
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data,
-              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let oauth = root["claudeAiOauth"] as? [String: Any],
-              let token = oauth["accessToken"] as? String else {
-            _ = query.removeValue(forKey: kSecReturnData as String)
-            return nil
-        }
-        return token
     }
 }

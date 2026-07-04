@@ -32,10 +32,31 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             content.body = body(for: event, row: row, stallMinutes: stallThresholdMinutes)
             content.userInfo = ["sessionID": event.sessionID]
             content.sound = .default
+            // One identifier per session: a newer state replaces the older
+            // banner instead of stacking (three flapping sessions used to
+            // wallpaper the corner of the screen).
             center.add(UNNotificationRequest(
-                identifier: "\(event.sessionID)-\(event.kind)-\(Date().timeIntervalSince1970)",
+                identifier: "session-\(event.sessionID)",
                 content: content, trigger: nil))
         }
+    }
+
+    /// "Claude Code is at 82% of its 5-hour limit." One identifier per agent
+    /// so re-alerts replace rather than stack.
+    func deliverLimitAlert(agentName: String, agentID: String,
+                           usedPercent: Double, resetsAt: Date?) {
+        requestAuthorizationIfNeeded()
+        let content = UNMutableNotificationContent()
+        var body = "\(agentName) is at \(Int(usedPercent))% of its 5-hour limit."
+        if let resetsAt, resetsAt > Date() {
+            let minutes = Int(resetsAt.timeIntervalSinceNow / 60)
+            body += minutes >= 60 ? " Resets in \(minutes / 60)h \(minutes % 60)m."
+                                  : " Resets in \(max(minutes, 1))m."
+        }
+        content.body = body
+        content.sound = .default
+        center.add(UNNotificationRequest(identifier: "limit-\(agentID)",
+                                         content: content, trigger: nil))
     }
 
     private func body(for event: NotificationEvent, row: SessionRow,

@@ -147,7 +147,7 @@ final class HookEventParserTests: XCTestCase {
         let line = """
         {"session_id":"abc-123","model":{"id":"claude-opus-4-8"},"cost":{"total_cost_usd":1.2},\
         "rate_limits":{"five_hour":{"used_percentage":34.5,"resets_at":"2026-07-05T18:00:00Z"},\
-        "seven_day":{"used_percentage":12}}}
+        "seven_day":{"used_percentage":12,"resets_at":1783573200}}}
         """
         let event = HookEventParser.parse(line: Data(line.utf8))
         XCTAssertNil(event?.signal)
@@ -156,6 +156,15 @@ final class HookEventParserTests: XCTestCase {
         XCTAssertEqual(event?.usage?.resetsAt,
                        ISO8601DateFormatter().date(from: "2026-07-05T18:00:00Z"))
         XCTAssertEqual(event?.usage?.isLive, false)
+        XCTAssertEqual(event?.usage?.weeklyUsedPercent, 12)
+        XCTAssertEqual(event?.usage?.weeklyResetsAt, Date(timeIntervalSince1970: 1_783_573_200))
+    }
+
+    func testMissingSevenDayLeavesWeeklyNil() {
+        let line = #"{"rate_limits":{"five_hour":{"used_percentage":10}}}"#
+        let event = HookEventParser.parse(line: Data(line.utf8))
+        XCTAssertEqual(event?.usage?.usedPercent, 10)
+        XCTAssertNil(event?.usage?.weeklyUsedPercent)
     }
 
     /// A Stop hook that also carries rate_limits yields both.

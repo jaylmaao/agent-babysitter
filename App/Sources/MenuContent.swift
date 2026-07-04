@@ -233,20 +233,32 @@ struct MenuContent: View {
                     Text(entry.running ? "not shared by this app" : "no recent reading")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
-                        .help(entry.running
+                        .help(entry.id.hasPrefix("antigravity")
+                              ? "Antigravity syncs its quota through the Antigravity IDE's account state. Open the IDE once (any window) and the reading appears here."
+                              : entry.running
                               ? "This agent doesn't record its limit usage on your Mac, and Agent Babysitter never guesses or phones home."
                               : "Open this app and the reading appears once it records usage.")
                     Spacer()
                 }
             }
             if let limit = entry.limit, limit.usedPercent != nil,
-               let phrase = resetPhrase(limit.resetsAt) {
-                Text(phrase)
+               let caption = limitCaption(limit) {
+                Text(caption)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
+    }
+
+    /// "resets in 2h 22m · week 23%" — whatever parts are known.
+    private func limitCaption(_ limit: UsageLimitSnapshot) -> String? {
+        var parts: [String] = []
+        if let phrase = resetPhrase(limit.resetsAt) { parts.append(phrase) }
+        if let weekly = limit.weeklyUsedPercent {
+            parts.append("week \(Int(weekly))%")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// "resets in 2h 22m" when the reset time is known and ahead of us.
@@ -269,6 +281,13 @@ struct MenuContent: View {
             parts.append(minutes >= 60 ? "resets in \(minutes / 60)h \(minutes % 60)m"
                                        : "resets in \(minutes)m")
         }
+        if let weekly = limit.weeklyUsedPercent {
+            var text = "weekly window \(Int(weekly))% used"
+            if let resets = limit.weeklyResetsAt, resets > Date() {
+                text += ", resets in \(Int(resets.timeIntervalSinceNow / 86_400))d"
+            }
+            parts.append(text)
+        }
         let age = Int(Date().timeIntervalSince(limit.capturedAt) / 60)
         parts.append(age < 1 ? "just updated" : "as of \(age)m ago")
         return parts.joined(separator: " · ")
@@ -287,10 +306,19 @@ struct MenuContent: View {
             }
             .buttonStyle(.borderless)
             .popover(isPresented: $showCostInfo, arrowEdge: .bottom) {
-                Text("Estimated from token usage at API list prices.\nOn a subscription plan (Pro/Max) this is not an extra charge — it shows the value of today's usage.")
-                    .font(.caption)
-                    .padding(10)
-                    .frame(width: 240)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Estimated from token usage at API list prices.\nOn a subscription plan (Pro/Max) this is not an extra charge — it shows the value of today's usage.")
+                        .font(.caption)
+                    if model.costHistory.count > 1 {
+                        Divider()
+                        Text("Last 7 days")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        CostTrendView(history: model.costHistory)
+                    }
+                }
+                .padding(10)
+                .frame(width: 240)
             }
             Spacer()
             Button {
