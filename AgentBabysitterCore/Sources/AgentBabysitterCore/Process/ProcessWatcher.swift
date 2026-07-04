@@ -13,8 +13,13 @@ public struct ShellProcessScanner: ProcessScanning {
     public init() {}
 
     public func scanClaudeProcesses() async throws -> [RunningProcess] {
-        let psOutput = try await run("/bin/ps", ["-axo", "pid=,args="])
-        let pids = ProcessOutputParser.claudePIDs(fromPS: psOutput)
+        // comm= catches native `claude` binaries even when their path
+        // contains spaces; args= catches runtime-hosted installs
+        // (`node …/claude`). Union both.
+        let commOutput = try await run("/bin/ps", ["-axo", "pid=,comm="])
+        let argsOutput = try await run("/bin/ps", ["-axo", "pid=,args="])
+        let pids = Array(Set(ProcessOutputParser.claudePIDs(fromPSComm: commOutput))
+            .union(ProcessOutputParser.claudePIDs(fromPS: argsOutput))).sorted()
         guard !pids.isEmpty else { return [] }
 
         let pidList = pids.map(String.init).joined(separator: ",")
@@ -55,6 +60,11 @@ public actor ProcessWatcher {
         public let processes: [RunningProcess]
         /// True when the last scan failed and `processes` is stale.
         public let degraded: Bool
+
+        public init(processes: [RunningProcess], degraded: Bool) {
+            self.processes = processes
+            self.degraded = degraded
+        }
     }
 
     private let scanner: any ProcessScanning

@@ -12,6 +12,10 @@ let package = Package(
             name: "AgentBabysitterCore",
             resources: [.copy("Resources/model-pricing.json")]
         ),
+        .executableTarget(
+            name: "babysitter-debug",
+            dependencies: ["AgentBabysitterCore"]
+        ),
         .testTarget(
             name: "AgentBabysitterCoreTests",
             dependencies: ["AgentBabysitterCore"],

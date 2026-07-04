@@ -38,6 +38,27 @@ final class ProcessParsingTests: XCTestCase {
         XCTAssertEqual(ProcessOutputParser.claudePIDs(fromPS: "notapid claude\n\n  \n"), [])
     }
 
+    // MARK: - ps comm output (full executable path, may contain spaces)
+
+    func testCommMatchesClaudeBinariesInPathsWithSpaces() {
+        // The Claude desktop app's embedded Claude Code runtime — the path
+        // contains spaces, which args-based tokenization gets wrong.
+        let ps = """
+        6237 /Users/dev/Library/Application Support/Claude/claude-code/2.1.197/claude.app/Contents/MacOS/claude
+        6236 /Applications/Claude.app/Contents/Helpers/disclaimer
+        6118 /Applications/Claude.app/Contents/MacOS/Claude
+        41234 /Users/dev/.local/bin/claude
+          312 /usr/sbin/distnoted
+        """
+        XCTAssertEqual(ProcessOutputParser.claudePIDs(fromPSComm: ps), [6237, 41234])
+    }
+
+    func testCommIsCaseSensitiveSoDesktopElectronIsExcluded() {
+        // "Claude" (the Electron shell) is not the CLI runtime "claude"
+        XCTAssertEqual(ProcessOutputParser.claudePIDs(
+            fromPSComm: "1 /Applications/Claude.app/Contents/MacOS/Claude"), [])
+    }
+
     // MARK: - lsof -Fn output → pid:cwd map
 
     func testParsesLSOFFieldOutputForMultiplePIDs() {

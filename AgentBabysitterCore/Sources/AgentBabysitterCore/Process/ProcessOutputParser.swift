@@ -40,6 +40,26 @@ public enum ProcessOutputParser {
         return pids
     }
 
+    /// Extract pids whose executable is named `claude` from
+    /// `ps -axo pid=,comm=` output. `comm` is the full executable path with
+    /// no argument tokens after it, so paths containing spaces (the desktop
+    /// app's embedded runtime lives under "Application Support") parse
+    /// correctly — unlike args-based tokenization.
+    public static func claudePIDs(fromPSComm output: String) -> [Int32] {
+        var pids: [Int32] = []
+        for rawLine in output.split(separator: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard let firstSpace = line.firstIndex(where: { $0 == " " || $0 == "\t" }),
+                  let pid = Int32(line[..<firstSpace]) else { continue }
+            let command = line[line.index(after: firstSpace)...]
+                .trimmingCharacters(in: .whitespaces)
+            if command.split(separator: "/").last == "claude" {
+                pids.append(pid)
+            }
+        }
+        return pids
+    }
+
     /// Parse `lsof -a -d cwd -Fn -p <pids>` field output into pid → cwd.
     /// Field format: `p<pid>` starts a process section, `n<path>` is the
     /// cwd path within it.
