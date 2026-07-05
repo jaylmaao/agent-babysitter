@@ -361,6 +361,20 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The popover just opened: whatever the idle cadence was doing, the
+    /// user is looking NOW - refresh immediately and go fast, so the menu
+    /// can never show a stale (possibly empty) snapshot at open.
+    func popoverOpened() {
+        lastRowsSeenAt = Date()
+        if refreshInterval != 2 { scheduleRefreshTimer(interval: 2) }
+        let watcher = processWatcher
+        Task {
+            await watcher.setPace(fast: true)
+            await watcher.pollOnce()
+            await self.refresh()
+        }
+    }
+
     private func adaptRefreshCadence() {
         if !rows.isEmpty { lastRowsSeenAt = Date() }
         let quiet = rows.isEmpty && Date().timeIntervalSince(lastRowsSeenAt) > 120

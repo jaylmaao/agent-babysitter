@@ -62,6 +62,7 @@ struct MenuContent: View {
             footer
         }
         .frame(width: 330)
+        .onAppear { model.popoverOpened() }
     }
 
     // MARK: - Pieces
