@@ -111,6 +111,19 @@ public struct CodexAdapter: AgentAdapter {
                 match[session.sessionID] = process.pid
             }
         }
+        // The desktop app's shell reports cwd "/" while its sessions carry
+        // project paths, so cwd matching can never pair them - fall back to
+        // pairing leftovers positionally (newest session, lowest pid),
+        // exactly like the other desktop-app adapters.
+        let unmatchedProcesses = processes
+            .filter { process in !match.values.contains(process.pid) }
+            .sorted { $0.pid < $1.pid }
+        let unmatchedSessions = candidates
+            .filter { match[$0.sessionID] == nil }
+            .sorted { $0.lastModified > $1.lastModified }
+        for (session, process) in zip(unmatchedSessions, unmatchedProcesses) {
+            match[session.sessionID] = process.pid
+        }
         return match
     }
 }

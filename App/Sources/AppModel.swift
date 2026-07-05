@@ -151,6 +151,7 @@ final class AppModel: ObservableObject {
     }
     private var lastDebugLimits: [String: String] = [:]
     private var lastDebugAgents = ""
+    private var lastDebugRows = ""
     /// Limit alerts fire once per window per agent; keyed by reset time and
     /// persisted so a relaunch doesn't re-alert the same window.
     private var alertedFiveHour: [String: Date] =
@@ -448,6 +449,12 @@ final class AppModel: ObservableObject {
         if debugLimits != lastDebugLimits {
             lastDebugLimits = debugLimits
             UserDefaults.standard.set(debugLimits, forKey: "debugUsageLimits")
+        }
+        let debugRows = rows.map { "[\($0.state.label)] \($0.agentName): \($0.projectName)" }
+            .joined(separator: " | ")
+        if debugRows != lastDebugRows {
+            lastDebugRows = debugRows
+            UserDefaults.standard.set(debugRows, forKey: "debugRows")
         }
         let debugAgents = "installed: \(installedAgents.map(\.id).sorted().joined(separator: " ")) | running: \(runningAgentIDs.sorted().joined(separator: " "))"
         if debugAgents != lastDebugAgents {

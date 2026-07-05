@@ -155,13 +155,14 @@ public struct GeminiAdapter: AgentAdapter {
     }
 
     public func makeReader(url: URL) -> any SessionReading {
-        // The desktop chat streams store writes while replying, then goes
-        // silent - measured: zero idle writes - so 25s of quiet is a safe,
-        // much snappier "done" than the default minute.
+        // Desktop: the chat store only records the SEND (completion is
+        // persisted lazily, verified live), so working/done comes from the
+        // app's live network flow (liveNetworkBytes) with a short quiet
+        // tail here. CLI keeps the standard activity window.
         FileActivityReader(url: url,
                            sessionID: sessionID(forTranscript: url),
                            entrypoint: displayName,
-                           idleCutoff: surface == .desktop ? 25 : 60)
+                           idleCutoff: surface == .desktop ? 6 : 60)
     }
 
     /// No cwd is recoverable from these processes; pair newest sessions
@@ -174,6 +175,41 @@ public struct GeminiAdapter: AgentAdapter {
             match[candidate.sessionID] = process.pid
         }
         return match
+    }
+
+    /// Cumulative network bytes (in+out) for the app's process — streaming
+    /// replies are a continuous flow, so byte deltas mark "working" in real
+    /// time where the disk records nothing (completion writes are deferred).
+    public func liveNetworkBytes(pid: Int32) -> Int? {
+        guard surface == .desktop else { return nil }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/nettop")
+        process.arguments = ["-P", "-p", String(pid), "-x", "-l", "1"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardInput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        // nettop has been observed hanging when launched from a GUI app
+        // context - a watchdog guarantees it can never wedge the caller.
+        let watchdog = DispatchWorkItem { if process.isRunning { process.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 2, execute: watchdog)
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        watchdog.cancel()
+        guard let output = String(data: data, encoding: .utf8) else { return nil }
+        return Self.parseNettopBytes(output)
+    }
+
+    /// Last data row: time, name, bytes_in, bytes_out, …
+    static func parseNettopBytes(_ output: String) -> Int? {
+        for line in output.split(separator: "\n").reversed() {
+            let fields = line.split(separator: " ", omittingEmptySubsequences: true)
+            guard fields.count >= 4, fields[1].contains("."),
+                  let bytesIn = Int(fields[2]), let bytesOut = Int(fields[3]) else { continue }
+            return bytesIn + bytesOut
+        }
+        return nil
     }
 
     public func agentPIDs(psComm: String, psArgs: String) -> [Int32] {

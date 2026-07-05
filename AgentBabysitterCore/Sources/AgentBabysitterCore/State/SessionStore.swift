@@ -201,9 +201,18 @@ public actor SessionStore {
                (tracked.reader.lastGrowthAt ?? .distantPast) <= dismissedAfter {
                 continue
             }
+            // Real-time network signal: a streaming reply is continuous
+            // flow. Sampling shells nettop, which can stall, so it runs in
+            // a detached probe loop - rows() only reads the cached result.
+            let key = "\(tracked.adapter.id)/\(tracked.reader.sessionID)"
+            if let pid = tracked.pid, tracked.adapter.id == "gemini" {
+                startNetProbeIfNeeded(key: key, pid: pid, adapter: tracked.adapter)
+            }
+            let effectiveGrowth = [tracked.reader.lastGrowthAt, netActiveAt[key]]
+                .compactMap { $0 }.max()
             let signals = SessionSignals(
                 processAlive: tracked.pid != nil,
-                lastGrowthAt: tracked.reader.lastGrowthAt,
+                lastGrowthAt: effectiveGrowth,
                 turnPhase: tracked.reader.turnPhase,
                 hasPendingToolUses: tracked.reader.hasPendingToolUses,
                 latestHookEvent: tracked.latestHookSignal,
@@ -345,6 +354,43 @@ public actor SessionStore {
     // MARK: - Internals
 
     private var latestProcessesByAdapter: [String: [RunningProcess]] = [:]
+    /// Network-flow sampling for adapters that provide it: last cumulative
+    /// byte count per session key, and when flow was last observed.
+    private var netSamples: [String: (bytes: Int, at: Date)] = [:]
+    private var netActiveAt: [String: Date] = [:]
+    private var netProbes: [String: Task<Void, Never>] = [:]
+
+    /// Detached loop: sample the adapter's byte counter every 2.5s, record
+    /// activity on >2KB deltas, stop when the session loses that process.
+    private func startNetProbeIfNeeded(key: String, pid: Int32, adapter: any AgentAdapter) {
+        guard netProbes[key] == nil else { return }
+        netProbes[key] = Task.detached { [weak self] in
+            defer { Task { [weak self] in await self?.clearNetProbe(key: key) } }
+            while !Task.isCancelled {
+                guard let self else { return }
+                guard await self.sessionStillHas(pid: pid, key: key) else { return }
+                if let bytes = adapter.liveNetworkBytes(pid: pid) {
+                    await self.recordNetSample(key: key, bytes: bytes)
+                }
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+            }
+        }
+    }
+
+    private func sessionStillHas(pid: Int32, key: String) -> Bool {
+        sessions[key]?.pid == pid
+    }
+
+    private func recordNetSample(key: String, bytes: Int) {
+        if let last = netSamples[key], bytes - last.bytes > 2048 {
+            netActiveAt[key] = Date()
+        }
+        netSamples[key] = (bytes, Date())
+    }
+
+    private func clearNetProbe(key: String) {
+        netProbes[key] = nil
+    }
 
     private func track(url: URL, adapter: any AgentAdapter, projectDirName: String) {
         let key = "\(adapter.id)/\(adapter.sessionID(forTranscript: url))"

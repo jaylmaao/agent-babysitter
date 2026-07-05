@@ -18,6 +18,10 @@ SIGN_IDENTITY="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/de
 
 xcodegen generate --quiet
 
+# Release artifacts must never ship stale objects: incremental builds have
+# been observed reusing old .o files despite newer sources (three times).
+rm -rf build/Build
+
 if [ -n "$SIGN_IDENTITY" ]; then
     echo "Signing with: $SIGN_IDENTITY"
     xcodebuild -project AgentBabysitter.xcodeproj -scheme AgentBabysitter \

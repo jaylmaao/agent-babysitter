@@ -50,6 +50,10 @@ public protocol AgentAdapter: Sendable {
     func makeReader(url: URL) -> any SessionReading
     /// Label used when a session has no known cwd to display.
     func projectDirName(forTranscript url: URL) -> String
+    /// Cumulative network bytes for a live session process, when the
+    /// adapter can provide them (used as a real-time activity signal for
+    /// agents whose files don't record completion). nil = unsupported.
+    func liveNetworkBytes(pid: Int32) -> Int?
     /// True when state comes from file activity rather than parsed turns —
     /// turn-completion notifications are unreliable for these and are
     /// suppressed.
@@ -57,6 +61,8 @@ public protocol AgentAdapter: Sendable {
 }
 
 public extension AgentAdapter {
+    func liveNetworkBytes(pid: Int32) -> Int? { nil }
+
     func canonicalTranscriptURL(forPath path: String) -> URL {
         URL(fileURLWithPath: path)
     }
