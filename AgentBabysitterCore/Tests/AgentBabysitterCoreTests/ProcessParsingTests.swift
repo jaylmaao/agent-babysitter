@@ -96,12 +96,12 @@ final class SessionProcessMatcherTests: XCTestCase {
     func testMungingMatchesRealProjectDirNames() {
         XCTAssertEqual(SessionProcessMatcher.projectDirName(forCWD: "/Users/jay"),
                        "-Users-jay")
-        XCTAssertEqual(SessionProcessMatcher.projectDirName(forCWD: "/Users/jay/.openclaw/workspace"),
-                       "-Users-jay--openclaw-workspace")
+        XCTAssertEqual(SessionProcessMatcher.projectDirName(forCWD: "/Users/jay/.config/workspace"),
+                       "-Users-jay--config-workspace")
         XCTAssertEqual(
             SessionProcessMatcher.projectDirName(
-                forCWD: "/private/var/folders/hq/yhm5d7kj07gfh6d5b7bb2b840000gn/T/openclaw-crestodian-planner-CJ3E6S"),
-            "-private-var-folders-hq-yhm5d7kj07gfh6d5b7bb2b840000gn-T-openclaw-crestodian-planner-CJ3E6S")
+                forCWD: "/private/var/folders/hq/aabbccddeeff00112233445566778899/T/agent-scratch-AB12CD"),
+            "-private-var-folders-hq-aabbccddeeff00112233445566778899-T-agent-scratch-AB12CD")
     }
 
     func testMungingReplacesNonAlphanumerics() {
