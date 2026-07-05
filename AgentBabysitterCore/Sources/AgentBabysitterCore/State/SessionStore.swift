@@ -327,19 +327,14 @@ public actor SessionStore {
             where adapter.id.hasPrefix("antigravity") && latest[adapter.id] == nil {
                 latest[adapter.id] = usage
             }
-            // The Google AI plan covers Gemini too -- but the % above is
-            // Antigravity's Code Assist quota, NOT the Gemini app's limits
-            // (which Google keeps server-side only; verified: no usage data
-            // exists anywhere in the app's local stores). Plan tier only.
-            if let plan = usage.plan {
-                for adapter in configuration.adapters
-                where adapter.id.hasPrefix("gemini") && latest[adapter.id] == nil {
-                    latest[adapter.id] = UsageLimitSnapshot(
-                        usedPercent: nil, windowMinutes: 300, resetsAt: nil,
-                        capturedAt: usage.capturedAt, plan: plan)
-                }
-            }
         }
+        // Gemini is deliberately left with NO snapshot. Its real usage %
+        // (the numbers on gemini.google.com/usage) is fetched live by the
+        // Gemini app from Google's servers behind a web login and is never
+        // written to disk — verified: the desktop app only logs "0 modes
+        // over quota", and the CLI OAuth token reaches Code Assist (tier
+        // only, no %). Showing Antigravity's plan tier here was misleading,
+        // so the UI links straight to the usage page instead.
         // Cursor: plan tier from its own state db (verified: that's all it
         // persists locally — the % needs the opt-in live fetch, app layer).
         if latest["cursor"] == nil, let usage = cursorUsage() {

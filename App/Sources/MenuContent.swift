@@ -287,6 +287,20 @@ struct MenuContent: View {
                         .buttonStyle(.link)
                         .font(.caption)
                         .help("Records the usage numbers Claude Code already computes on your Mac (adds a small status-line helper to Claude's settings; fully reversible in Settings). Works offline. Desktop-only users can use Live usage in Settings instead.")
+                } else if entry.id.hasPrefix("gemini") {
+                    // Gemini's real % lives only behind Google's web login and
+                    // is never written to disk (verified) — so link straight
+                    // to the page that has it rather than show a plan tier.
+                    Text("on Google's servers")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                    Button("Check usage ↗") {
+                        NSWorkspace.shared.open(URL(string: "https://gemini.google.com/usage")!)
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .help("Gemini keeps your usage limits on Google's servers, behind your Google login — they're never stored on your Mac, so they can't be shown here without your full Google session. This opens your live usage page in the browser.")
                 } else {
                     Text(entry.running ? "not shared by this app" : "no recent reading")
                         .font(.caption)
@@ -323,7 +337,12 @@ struct MenuContent: View {
     private func limitAccessibilityLabel(
         _ entry: (id: String, name: String, limit: UsageLimitSnapshot?, running: Bool)
     ) -> String {
-        guard let limit = entry.limit else { return "\(entry.name), no usage data" }
+        guard let limit = entry.limit else {
+            if entry.id.hasPrefix("gemini") {
+                return "\(entry.name), usage kept on Google's servers, button to open the usage page"
+            }
+            return "\(entry.name), no usage data"
+        }
         if let used = UsageForecast.estimatedCurrentPercent(limit) ?? limit.usedPercent {
             var text = "\(entry.name), \(Int(used)) percent of the \(windowName(limit.windowMinutes)) used"
             if let resets = limit.resetsAt, resets > Date() {
