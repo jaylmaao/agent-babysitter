@@ -15,10 +15,13 @@ struct PreferencesView: View {
 
     @ViewBuilder
     private func budgetField(_ text: Binding<String>, apply: @escaping (Double) -> Void) -> some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 4) {
             Text(model.currency.symbol).foregroundStyle(.secondary)
-            TextField("0 = off", text: text)
-                .frame(width: 70)
+            TextField("", text: text, prompt: Text("Off"))
+                .labelsHidden()
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1)
+                .frame(width: 90)
                 .multilineTextAlignment(.trailing)
                 .onChange(of: text.wrappedValue) { _, new in apply(Self.parseBudget(new)) }
         }
@@ -164,11 +167,17 @@ struct PreferencesView: View {
                             .frame(width: 44, alignment: .trailing)
                     }
                 }
-                LabeledContent("💸 Daily spend over") {
+                LabeledContent {
                     budgetField($dailyBudgetText) { model.dailyBudget = $0 }
+                } label: {
+                    Text("💸 Daily spend goes over")
+                    Text("One heads-up per day when today's estimated cost crosses this. Leave empty to turn off.")
                 }
-                LabeledContent("💸 Weekly spend over") {
+                LabeledContent {
                     budgetField($weeklyBudgetText) { model.weeklyBudget = $0 }
+                } label: {
+                    Text("💸 Weekly spend goes over")
+                    Text("Same, for the last 7 days combined.")
                 }
             } header: {
                 Text("Notify me when…")
