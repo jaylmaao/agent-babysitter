@@ -3,6 +3,7 @@ import SwiftUI
 /// Seven tiny bars — enough to see the week's shape at a glance.
 struct CostTrendView: View {
     let history: [(day: Date, dollars: Double)]
+    var money: (Double) -> String = { String(format: "~$%.2f", $0) }
 
     var body: some View {
         let peak = max(history.map(\.dollars).max() ?? 1, 0.01)
@@ -13,7 +14,7 @@ struct CostTrendView: View {
                         .fill(Calendar.current.isDateInToday(entry.day)
                               ? Color.accentColor : Color.secondary.opacity(0.45))
                         .frame(width: 18, height: max(4, 36 * entry.dollars / peak))
-                        .help(String(format: "%@: $%.2f", Self.dayLabel(entry.day), entry.dollars))
+                        .help("\(Self.dayLabel(entry.day)): \(money(entry.dollars))")
                     Text(Self.dayLabel(entry.day))
                         .font(.system(size: 8))
                         .foregroundStyle(.tertiary)

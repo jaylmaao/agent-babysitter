@@ -10,6 +10,8 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     /// Looks up the current row for a session when a notification is
     /// clicked - async so it can reach sessions the auto-hide tidied away.
     var rowProvider: (@MainActor (String) async -> SessionRow?)?
+    /// Formats a USD amount in the user's currency (set by AppModel).
+    var money: (Double) -> String = { String(format: "~$%.2f", $0) }
 
     /// Rows that left the list take their delivered banners along.
     func removeDelivered(sessionIDs: [String]) {
@@ -114,8 +116,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             if row.cost.hasUnknownPricing || row.cost.dollars == 0 {
                 return "Session \(row.projectName) finished its turn."
             }
-            return String(format: "Session %@ finished its turn (cost $%.2f).",
-                          row.projectName, row.cost.dollars)
+            return "Session \(row.projectName) finished its turn (cost \(money(row.cost.dollars)))."
         case .stalled:
             return "Session \(row.projectName) has produced nothing for \(stallMinutes) min."
         }

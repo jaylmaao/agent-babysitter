@@ -84,8 +84,8 @@ struct StatsView: View {
                 Divider()
                 // Dollars and hours live on very different scales — one
                 // shared axis buries the smaller series, so: two charts.
-                bucketChart(title: "Estimated cost per \(unitName) ($)",
-                            color: .accentColor) { $0.dollars }
+                bucketChart(title: "Estimated cost per \(unitName) (\(model.currency.symbol))",
+                            color: .accentColor) { $0.dollars * (model.currency.code == "USD" ? 1 : model.currencyRate) }
                 bucketChart(title: "Agent hours per \(unitName)",
                             color: .orange.opacity(0.85)) { $0.activeMinutes / 60 }
             }
@@ -99,7 +99,7 @@ struct StatsView: View {
                         Text(Self.agentNames[agent] ?? agent)
                             .font(.callout)
                         Spacer()
-                        Text(String(format: "~$%.2f", dollars))
+                        Text(model.money(dollars))
                             .font(.callout.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
@@ -258,6 +258,6 @@ struct StatsView: View {
     }
 
     private var totalCost: String {
-        String(format: "~$%.0f", selectedDays.reduce(0) { $0 + $1.dollars })
+        model.money(selectedDays.reduce(0) { $0 + $1.dollars })
     }
 }

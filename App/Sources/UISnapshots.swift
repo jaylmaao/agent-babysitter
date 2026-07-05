@@ -119,6 +119,24 @@ enum UISnapshots {
                 todayCost: SessionCost(dollars: 18.15), costHistory: history)
         }
 
+        // Currency conversion + reset-window ordering: Codex's window has
+        // rolled over, so it sinks below the live Claude/Antigravity readings
+        // and dims; costs render in ₹.
+        menu("menu-currency") { model in
+            model.applyFixture(
+                rows: [row("a", "checkout-service", .working, dollars: 12.38),
+                       row("c", "rollout-parser", .done,
+                           agent: ("codex", "Codex"), dollars: 1.75)],
+                summary: MenuBarSummary(worstState: .working, activeCount: 2),
+                usageLimits: ["claude-code": limit(43, plan: "pro", weekly: 23, live: true),
+                              "codex": limit(0, plan: "plus", resetsInMinutes: -5),
+                              "antigravity": limit(5, plan: "Google AI Pro")],
+                installedAgents: allInstalled,
+                runningAgentIDs: ["claude-code", "codex", "antigravity"],
+                todayCost: SessionCost(dollars: 18.15), costHistory: history,
+                currency: ("INR", 95.3))
+        }
+
         menu("menu-crowded-danger", showAll: true) { model in
             model.applyFixture(
                 rows: [row("a", "a-really-long-project-directory-name-that-should-truncate",

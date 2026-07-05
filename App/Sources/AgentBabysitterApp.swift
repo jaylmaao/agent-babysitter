@@ -17,6 +17,7 @@ struct AgentBabysitterApp: App {
             MenuBarLabel(summary: model.summary, limitDanger: model.limitDanger,
                          style: model.menuBarStyle,
                          costToday: model.todayCost.dollars,
+                         costLabel: model.moneyCompact(model.todayCost.dollars),
                          hottestLimit: model.hottestLimitPercent)
         }
         .menuBarExtraStyle(.window)
@@ -44,6 +45,8 @@ struct MenuBarLabel: View {
     var limitDanger = false
     var style = "status"
     var costToday = 0.0
+    /// Pre-formatted compact cost in the user's currency ("$581", "₹55k").
+    var costLabel = ""
     var hottestLimit: Double?
 
     var body: some View {
@@ -52,7 +55,7 @@ struct MenuBarLabel: View {
         Group {
         switch style {
         case "cost" where costToday > 0:
-            composed(text: "$\(Int(costToday))")
+            composed(text: costLabel.isEmpty ? "$\(Int(costToday))" : costLabel)
         case "limit":
             if let hottestLimit {
                 composed(text: "\(Int(hottestLimit))%")

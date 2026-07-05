@@ -64,6 +64,17 @@ struct PreferencesView: View {
                     Text("Today's cost").tag("cost")
                     Text("Hottest 5h limit %").tag("limit")
                 }
+                Picker("Currency", selection: $model.currencyCode) {
+                    ForEach(Currency.catalog, id: \.code) { currency in
+                        Text("\(currency.symbol)  \(currency.code) — \(currency.name)")
+                            .tag(currency.code)
+                    }
+                }
+                if model.currencyCode != "USD" {
+                    Text("Costs are estimated in US dollars from token usage, then converted at the latest exchange rate. USD stays fully offline; other currencies fetch rates (no personal data sent).")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Button("Show the feature tour") {
                     NSApp.activate(ignoringOtherApps: true)
                     openWindow(id: "welcome")

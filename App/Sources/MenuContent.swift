@@ -173,7 +173,8 @@ struct MenuContent: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 6)
                     ForEach(group.rows) { row in
-                        SessionRowView(row: row, onDismiss: { model.dismiss($0) })
+                        SessionRowView(row: row, money: { model.money($0) },
+                                       onDismiss: { model.dismiss($0) })
                             .onTapGesture { TerminalFocuser.focusSession(row) }
                     }
                 }
@@ -187,12 +188,22 @@ struct MenuContent: View {
         let order = ["claude-code": 0, "codex": 1,
                      "antigravity": 2, "antigravity-ide": 3, "antigravity-cli": 4,
                      "gemini": 5, "gemini-cli": 6, "cursor": 7, "manus": 8]
+        let now = Date()
+        // An agent whose window has rolled over (resetsAt in the past) shows a
+        // "reset" bar with nothing to act on — sink those below agents with a
+        // live reading, keeping the fixed order within each group.
+        func resetTier(_ limit: UsageLimitSnapshot?) -> Int {
+            (limit?.resetsAt).map { $0 < now ? 1 : 0 } ?? 0
+        }
         return model.installedAgents
             .filter { showAllLimits || model.runningAgentIDs.contains($0.id) }
-            .sorted { (order[$0.id] ?? 99, $0.id) < (order[$1.id] ?? 99, $1.id) }
             .map { (id: $0.id, name: $0.name,
                     limit: model.usageLimits[$0.id],
                     running: model.runningAgentIDs.contains($0.id)) }
+            .sorted { a, b in
+                (resetTier(a.limit), order[a.id] ?? 99, a.id)
+                    < (resetTier(b.limit), order[b.id] ?? 99, b.id)
+            }
     }
 
     /// Whether expanding would reveal anything beyond the open apps.
@@ -234,11 +245,19 @@ struct MenuContent: View {
             }
             ForEach(limitEntries, id: \.id) { entry in
                 limitRow(entry)
-                    .opacity(entry.running ? 1 : 0.55)
+                    .opacity(limitRowOpacity(entry))
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    /// Non-running apps and rolled-over windows recede below live readings.
+    private func limitRowOpacity(_ entry: (id: String, name: String,
+                                           limit: UsageLimitSnapshot?, running: Bool)) -> Double {
+        if !entry.running { return 0.55 }
+        if let resets = entry.limit?.resetsAt, resets < Date() { return 0.6 }
+        return 1
     }
 
     @ViewBuilder
@@ -265,7 +284,7 @@ struct MenuContent: View {
                                   : "Only the plan tier is available offline right now — the % appears once the agent syncs its quota to disk.")
                     } else if let resets = limit.resetsAt, resets < Date() {
                         ProgressView(value: 0)
-                            .tint(.green)
+                            .tint(.secondary)
                         Text("reset")
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
@@ -443,7 +462,7 @@ struct MenuContent: View {
         HStack(spacing: 8) {
             // A brand-new install has no cost to report; skip the noise.
             if !model.noAgentsDetected {
-            Text("Today: \(model.todayCost.display)")
+            Text("Today: \(model.todayCost.display(money: { model.money($0) }))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .onTapGesture { showCostInfo.toggle() }
@@ -464,7 +483,7 @@ struct MenuContent: View {
                         Text("Last 7 days")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
-                        CostTrendView(history: model.costHistory)
+                        CostTrendView(history: model.costHistory, money: { model.money($0) })
                     }
                 }
                 .padding(10)
@@ -574,6 +593,7 @@ struct WelcomeCard: View {
 
 struct SessionRowView: View {
     let row: SessionRow
+    var money: (Double) -> String = { String(format: "~$%.2f", $0) }
     var onDismiss: (SessionRow) -> Void = { _ in }
     @State private var hovering = false
 
@@ -601,7 +621,7 @@ struct SessionRowView: View {
                 .foregroundStyle(.secondary)
             }
             Spacer()
-            Text(row.cost.display)
+            Text(row.cost.display(money: money))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
         }
@@ -650,17 +670,18 @@ struct SessionRowView: View {
 }
 
 extension SessionCost {
-    /// "$1.22", or token counts when pricing is unknown — never guessed dollars.
-    var display: String {
+    /// "~$1.22" (in the user's currency), or token counts when pricing is
+    /// unknown — never guessed dollars. `money` converts a USD amount.
+    func display(money: (Double) -> String) -> String {
         if dollars == 0 && totalTokens == 0 && !hasUnknownPricing {
             return "—"  // no readable usage at all (e.g. Antigravity)
         }
         if hasUnknownPricing {
             return dollars > 0
-                ? String(format: "~$%.2f + %@ tokens", dollars, formattedTokens)
+                ? "\(money(dollars)) + \(formattedTokens) tokens"
                 : "\(formattedTokens) tokens"
         }
-        return String(format: "~$%.2f", dollars)
+        return money(dollars)
     }
 }
 

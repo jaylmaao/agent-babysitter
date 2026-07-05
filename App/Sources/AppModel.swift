@@ -42,6 +42,31 @@ final class AppModel: ObservableObject {
     @Published var notificationsMuted: Bool {
         didSet { UserDefaults.standard.set(notificationsMuted, forKey: "notificationsMuted") }
     }
+    /// ISO code of the display currency. USD (default) needs no rate and no
+    /// network; picking another fetches its rate.
+    @Published var currencyCode: String {
+        didSet {
+            guard currencyCode != oldValue else { return }
+            UserDefaults.standard.set(currencyCode, forKey: "currencyCode")
+            Task { await self.refreshCurrencyRate() }
+        }
+    }
+    /// Cached USD→currency rate (1 for USD). Drives every cost display.
+    @Published private(set) var currencyRate: Double = 1
+
+    var currency: Currency { Currency.byCode(currencyCode) ?? .usd }
+
+    /// Format a USD amount in the user's chosen currency. The single entry
+    /// point every cost label goes through.
+    func money(_ usd: Double, approximate: Bool = true) -> String {
+        CurrencyFormatter.string(usd: usd, currency: currency, rate: currencyRate,
+                                 approximate: approximate)
+    }
+
+    /// Compact form for the menu bar (no decimals, k/M past 10k).
+    func moneyCompact(_ usd: Double) -> String {
+        CurrencyFormatter.compact(usd: usd, currency: currency, rate: currencyRate)
+    }
     /// Positive = minutes to keep finished rows, 0 = never hide,
     /// negative = hide immediately (same tick the state flips done).
     static func hideInterval(_ minutes: Double) -> TimeInterval? {
@@ -200,6 +225,13 @@ final class AppModel: ObservableObject {
                                                   doneAutoHide: Self.hideInterval(hideMinutes)))
         processWatcher = ProcessWatcher(adapters: adapters)
         notificationsMuted = defaults.bool(forKey: "notificationsMuted")
+        currencyCode = defaults.string(forKey: "currencyCode") ?? "USD"
+        if let data = defaults.data(forKey: "currencyRate"),
+           let cached = try? JSONDecoder().decode(CurrencyRateService.CachedRate.self, from: data),
+           cached.code == (defaults.string(forKey: "currencyCode") ?? "USD") {
+            currencyRate = cached.rate
+            cachedCurrencyRate = cached
+        }
         doneAutoHideMinutes = defaults.double(forKey: "doneAutoHideMinutes")
         stallThresholdMinutes = stallMinutes
         notifyWaiting = defaults.bool(forKey: "notifyWaiting")
@@ -228,6 +260,7 @@ final class AppModel: ObservableObject {
             // sessions the auto-hide has tidied away.
             await self?.store.rows(includeHidden: true).first { $0.id == sessionID }
         }
+        notificationManager.money = { [weak self] in self?.money($0) ?? String(format: "~$%.2f", $0) }
         hotKeyManager.target = { [weak self] in self?.neediestRow() }
         applyHotKey()
         notificationManager.primeAuthorization()
@@ -235,6 +268,23 @@ final class AppModel: ObservableObject {
         if precision { applyPrecisionMode() }
         if claudeUsageMeterEnabled { applyClaudeUsageMeter() }
         if liveUsageEnabled { Task { await refreshLiveUsage(forceFetch: true) } }
+        if currencyCode != "USD" { Task { await refreshCurrencyRate() } }
+    }
+
+    private let currencyRateService = CurrencyRateService()
+    private var cachedCurrencyRate: CurrencyRateService.CachedRate?
+
+    /// Refresh the display-currency rate (no-op for USD). Persists the result
+    /// so a relaunch shows converted costs immediately, offline.
+    private func refreshCurrencyRate() async {
+        let code = currencyCode
+        guard let fresh = await currencyRateService.rate(for: code, cached: cachedCurrencyRate)
+        else { return }
+        cachedCurrencyRate = fresh
+        currencyRate = fresh.rate
+        if let data = try? JSONEncoder().encode(fresh) {
+            UserDefaults.standard.set(data, forKey: "currencyRate")
+        }
     }
 
     /// Injects a complete UI state for the snapshot harness.
@@ -248,7 +298,12 @@ final class AppModel: ObservableObject {
                       noAgentsDetected: Bool = false,
                       welcomeDismissed: Bool = true,
                       processDetectionDegraded: Bool = false,
-                      statsDays: [DayStat] = []) {
+                      statsDays: [DayStat] = [],
+                      currency: (code: String, rate: Double)? = nil) {
+        if let currency {
+            self.currencyCode = currency.code
+            self.currencyRate = currency.rate
+        }
         self.rows = rows
         self.summary = summary
         self.usageLimits = usageLimits
