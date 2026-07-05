@@ -130,9 +130,12 @@ enum UISnapshots {
                 summary: MenuBarSummary(worstState: .working, activeCount: 2),
                 usageLimits: ["claude-code": limit(43, plan: "pro", weekly: 23, live: true),
                               "codex": limit(0, plan: "plus", resetsInMinutes: -5),
+                              "cursor": limit(5, plan: "Free", live: true),
+                              "manus": limit(8, plan: "Free · 1,276 credits", live: true),
                               "antigravity": limit(5, plan: "Google AI Pro")],
-                installedAgents: allInstalled + [("gemini", "Gemini")],
-                runningAgentIDs: ["claude-code", "codex", "antigravity", "gemini"],
+                installedAgents: allInstalled + [("cursor", "Cursor"), ("manus", "Manus"),
+                                                 ("gemini", "Gemini")],
+                runningAgentIDs: ["claude-code", "codex", "antigravity", "cursor", "manus", "gemini"],
                 todayCost: SessionCost(dollars: 18.15), costHistory: history,
                 currency: ("INR", 95.3))
         }

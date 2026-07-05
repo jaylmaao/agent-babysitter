@@ -119,9 +119,9 @@ struct MenuContent: View {
     /// Sessions grouped per agent app, in a fixed friendly order; rows keep
     /// their needs-attention-first ordering within each group.
     private var groupedRows: [(agentID: String, agentName: String, rows: [SessionRow])] {
-        let order = ["claude-code": 0, "codex": 1,
-                     "antigravity": 2, "antigravity-ide": 3, "antigravity-cli": 4,
-                     "gemini": 5, "gemini-cli": 6, "cursor": 7, "manus": 8]
+        let order = ["claude-code": 0, "codex": 1, "cursor": 2, "manus": 3,
+                     "antigravity": 4, "antigravity-ide": 5, "antigravity-cli": 6,
+                     "gemini": 7, "gemini-cli": 8]
         // Never show activity for an app that isn't installed (a running
         // session is always counted as installed, so this can't hide a live
         // one — only stale rows from an uninstalled app).
@@ -185,9 +185,9 @@ struct MenuContent: View {
     /// Open apps by default; expanding shows every installed agent. An agent
     /// gets its 5h reading when one is known, an honest fallback otherwise.
     private var limitEntries: [(id: String, name: String, limit: UsageLimitSnapshot?, running: Bool)] {
-        let order = ["claude-code": 0, "codex": 1,
-                     "antigravity": 2, "antigravity-ide": 3, "antigravity-cli": 4,
-                     "cursor": 5, "manus": 6, "gemini": 7, "gemini-cli": 8]
+        let order = ["claude-code": 0, "codex": 1, "cursor": 2, "manus": 3,
+                     "antigravity": 4, "antigravity-ide": 5, "antigravity-cli": 6,
+                     "gemini": 7, "gemini-cli": 8]
         let now = Date()
         // An agent whose window has rolled over shows a "reset" bar with
         // nothing to act on — sink those below agents with a live reading,
