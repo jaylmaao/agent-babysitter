@@ -32,6 +32,8 @@ public struct SessionRow: Equatable, Sendable, Identifiable {
             || entrypoint == "Antigravity"
             || entrypoint == "Antigravity IDE"
             || entrypoint == "Gemini"
+            || entrypoint == "Cursor"
+            || entrypoint == "Manus"
     }
 
     public init(id: String, projectName: String, state: SessionState,
@@ -147,7 +149,8 @@ public actor SessionStore {
             for info in adapter.recentTranscripts(maxAge: configuration.activeWindow,
                                                   now: Date()) {
                 guard let url = info.url else { continue }
-                track(url: url, adapter: adapter, projectDirName: info.projectDirName)
+                track(url: url, adapter: adapter, projectDirName: info.projectDirName,
+                      sessionID: info.sessionID)
             }
         }
     }
@@ -157,9 +160,20 @@ public actor SessionStore {
         for path in paths {
             guard let adapter = configuration.adapters.first(where: { $0.isTranscript(path: path) })
             else { continue }
-            let url = adapter.canonicalTranscriptURL(forPath: path)
-            track(url: url, adapter: adapter,
-                  projectDirName: adapter.projectDirName(forTranscript: url))
+            if adapter.multiSessionFiles {
+                // Session identity lives INSIDE the file - re-discover.
+                for info in adapter.recentTranscripts(maxAge: configuration.activeWindow,
+                                                      now: Date()) {
+                    guard let url = info.url else { continue }
+                    track(url: url, adapter: adapter,
+                          projectDirName: info.projectDirName,
+                          sessionID: info.sessionID)
+                }
+            } else {
+                let url = adapter.canonicalTranscriptURL(forPath: path)
+                track(url: url, adapter: adapter,
+                      projectDirName: adapter.projectDirName(forTranscript: url))
+            }
         }
         rematch()
     }
@@ -206,7 +220,7 @@ public actor SessionStore {
             // flow. Sampling shells nettop, which can stall, so it runs in
             // a detached probe loop - rows() only reads the cached result.
             let key = "\(tracked.adapter.id)/\(tracked.reader.sessionID)"
-            if let pid = tracked.pid, tracked.adapter.id == "gemini" {
+            if let pid = tracked.pid, tracked.adapter.usesNetworkActivity {
                 startNetProbeIfNeeded(key: key, pid: pid, adapter: tracked.adapter)
             }
             let effectiveGrowth = [tracked.reader.lastGrowthAt, netActiveAt[key]]
@@ -414,11 +428,13 @@ public actor SessionStore {
         netProbes[key] = nil
     }
 
-    private func track(url: URL, adapter: any AgentAdapter, projectDirName: String) {
-        let key = "\(adapter.id)/\(adapter.sessionID(forTranscript: url))"
+    private func track(url: URL, adapter: any AgentAdapter, projectDirName: String,
+                       sessionID: String? = nil) {
+        let id = sessionID ?? adapter.sessionID(forTranscript: url)
+        let key = "\(adapter.id)/\(id)"
         if sessions[key] == nil {
             BabysitterLog.store.info("tracking session \(key, privacy: .public)")
-            sessions[key] = TrackedSession(reader: adapter.makeReader(url: url),
+            sessions[key] = TrackedSession(reader: adapter.makeReader(url: url, sessionID: id),
                                            adapter: adapter,
                                            projectDirName: projectDirName)
             if let buffered = pendingHookSignals.removeValue(forKey: key) {

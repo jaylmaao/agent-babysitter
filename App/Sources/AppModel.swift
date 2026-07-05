@@ -134,7 +134,7 @@ final class AppModel: ObservableObject {
     private let projectsRoot: URL
     private let adapters: [any AgentAdapter] =
         [ClaudeCodeAdapter(), CodexAdapter()] + AntigravityAdapter.allSurfaces()
-        + GeminiAdapter.allSurfaces()
+        + GeminiAdapter.allSurfaces() + [CursorAdapter(), ManusAdapter()]
     private let store: SessionStore
     private let processWatcher: ProcessWatcher
     private var fsWatchers: [FSEventsWatcher] = []

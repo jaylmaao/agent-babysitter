@@ -110,7 +110,7 @@ extension GeminiAdapterTests {
         time interface state bytes_in bytes_out rx_dupe rx_ooo re-tx
         07:08:23.401372 Gemini.62407 132332 202661 2790 34909 9516
         """
-        XCTAssertEqual(GeminiAdapter.parseNettopBytes(output), 132332 + 202661)
-        XCTAssertNil(GeminiAdapter.parseNettopBytes("no data rows here"))
+        XCTAssertEqual(ProcessNetworkSampler.parse(output), 132332 + 202661)
+        XCTAssertNil(ProcessNetworkSampler.parse("no data rows here"))
     }
 }

@@ -58,6 +58,16 @@ public protocol AgentAdapter: Sendable {
     /// turn-completion notifications are unreliable for these and are
     /// suppressed.
     var isActivityBased: Bool { get }
+    /// True when the adapter wants the store's network-flow probe running
+    /// for its live sessions (agents whose files don't record completion).
+    var usesNetworkActivity: Bool { get }
+    /// True when one file hosts many sessions — session identity comes from
+    /// `recentTranscripts`, not the file path, and the store rediscovers
+    /// sessions whenever the shared file changes.
+    var multiSessionFiles: Bool { get }
+    /// Reader for a specific session id inside a multi-session file.
+    /// Defaults to the per-file reader.
+    func makeReader(url: URL, sessionID: String) -> any SessionReading
 }
 
 public extension AgentAdapter {
@@ -76,6 +86,14 @@ public extension AgentAdapter {
     }
 
     var isActivityBased: Bool { false }
+
+    var usesNetworkActivity: Bool { false }
+
+    var multiSessionFiles: Bool { false }
+
+    func makeReader(url: URL, sessionID: String) -> any SessionReading {
+        makeReader(url: url)
+    }
 }
 
 /// Claude Code: `~/.claude/projects/<munged-cwd>/<session-uuid>.jsonl`.

@@ -121,7 +121,7 @@ struct MenuContent: View {
     private var groupedRows: [(agentID: String, agentName: String, rows: [SessionRow])] {
         let order = ["claude-code": 0, "codex": 1,
                      "antigravity": 2, "antigravity-ide": 3, "antigravity-cli": 4,
-                     "gemini": 5, "gemini-cli": 6]
+                     "gemini": 5, "gemini-cli": 6, "cursor": 7, "manus": 8]
         return Dictionary(grouping: model.rows, by: \.agentID)
             .sorted { (order[$0.key] ?? 99, $0.key) < (order[$1.key] ?? 99, $1.key) }
             .map { (agentID: $0.key,
@@ -181,7 +181,7 @@ struct MenuContent: View {
     private var limitEntries: [(id: String, name: String, limit: UsageLimitSnapshot?, running: Bool)] {
         let order = ["claude-code": 0, "codex": 1,
                      "antigravity": 2, "antigravity-ide": 3, "antigravity-cli": 4,
-                     "gemini": 5, "gemini-cli": 6]
+                     "gemini": 5, "gemini-cli": 6, "cursor": 7, "manus": 8]
         return model.installedAgents
             .filter { showAllLimits || model.runningAgentIDs.contains($0.id) }
             .sorted { (order[$0.id] ?? 99, $0.id) < (order[$1.id] ?? 99, $1.id) }
@@ -628,6 +628,8 @@ struct OnboardingView: View {
                 Label("Codex — CLI or desktop app", systemImage: "checkmark.circle")
                 Label("Antigravity — app, IDE, or agy CLI", systemImage: "checkmark.circle")
                 Label("Gemini — desktop app or CLI", systemImage: "checkmark.circle")
+                Label("Cursor — agent (composer) sessions", systemImage: "checkmark.circle")
+                Label("Manus — desktop app", systemImage: "checkmark.circle")
             }
             .font(.caption)
             .foregroundStyle(.secondary)

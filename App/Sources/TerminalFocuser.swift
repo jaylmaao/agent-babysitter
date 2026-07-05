@@ -33,6 +33,8 @@ enum TerminalFocuser {
         "antigravity": ["com.google.antigravity"],
         "antigravity-ide": ["com.google.antigravity-ide"],
         "gemini": ["com.google.GeminiMacOS"],
+        "cursor": ["com.todesktop.230313mzl4w4u92"],
+        "manus": ["im.manus.desktop"],
     ]
 
     static func focusSession(_ row: SessionRow) {

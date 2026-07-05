@@ -1,6 +1,6 @@
 # Agent Babysitter
 
-macOS menu bar app that monitors running coding-agent sessions (Claude Code, Codex, Antigravity, and Gemini): working /
+macOS menu bar app that monitors running coding-agent sessions (Claude Code, Codex, Antigravity, Gemini, Cursor, and Manus): working /
 waiting for you / done / stalled / ended — with native notifications and live
 per-session token cost. No network calls, no telemetry.
 
@@ -19,7 +19,7 @@ per-session token cost. No network calls, no telemetry.
 ## Zero setup
 
 Download, open, done. The app finds every installed agent by itself —
-Claude Code, Codex, Antigravity, and Gemini, desktop apps and CLIs alike —
+Claude Code, Codex, Antigravity, Gemini, Cursor, and Manus, desktop apps and CLIs alike —
 and populates sessions, costs, and limits from their own files with no
 configuration, no accounts, and no network. Optional extras are one clearly
 labeled toggle each; nothing changes without that click, and every change

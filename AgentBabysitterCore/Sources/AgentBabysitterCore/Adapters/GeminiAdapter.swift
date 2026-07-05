@@ -40,6 +40,7 @@ public struct GeminiAdapter: AgentAdapter {
     public var displayName: String { surface.displayName }
     public var focusBundleIdentifiers: [String] { surface.bundleIdentifiers }
     public var isActivityBased: Bool { true }
+    public var usesNetworkActivity: Bool { surface == .desktop }
 
     public init(surface: Surface,
                 home: URL = FileManager.default.homeDirectoryForCurrentUser) {
@@ -182,34 +183,7 @@ public struct GeminiAdapter: AgentAdapter {
     /// time where the disk records nothing (completion writes are deferred).
     public func liveNetworkBytes(pid: Int32) -> Int? {
         guard surface == .desktop else { return nil }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/nettop")
-        process.arguments = ["-P", "-p", String(pid), "-x", "-l", "1"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardInput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return nil }
-        // nettop has been observed hanging when launched from a GUI app
-        // context - a watchdog guarantees it can never wedge the caller.
-        let watchdog = DispatchWorkItem { if process.isRunning { process.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 2, execute: watchdog)
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        watchdog.cancel()
-        guard let output = String(data: data, encoding: .utf8) else { return nil }
-        return Self.parseNettopBytes(output)
-    }
-
-    /// Last data row: time, name, bytes_in, bytes_out, …
-    static func parseNettopBytes(_ output: String) -> Int? {
-        for line in output.split(separator: "\n").reversed() {
-            let fields = line.split(separator: " ", omittingEmptySubsequences: true)
-            guard fields.count >= 4, fields[1].contains("."),
-                  let bytesIn = Int(fields[2]), let bytesOut = Int(fields[3]) else { continue }
-            return bytesIn + bytesOut
-        }
-        return nil
+        return ProcessNetworkSampler.cumulativeBytes(pid: pid)
     }
 
     public func agentPIDs(psComm: String, psArgs: String) -> [Int32] {
