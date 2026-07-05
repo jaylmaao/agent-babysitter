@@ -52,6 +52,7 @@ struct PreferencesView: View {
                     }
                 }
                 Picker("Hide finished sessions after", selection: $model.doneAutoHideMinutes) {
+                    Text("Immediately").tag(-1.0)
                     Text("5 minutes").tag(5.0)
                     Text("10 minutes").tag(10.0)
                     Text("30 minutes").tag(30.0)

@@ -42,6 +42,14 @@ final class AppModel: ObservableObject {
     @Published var notificationsMuted: Bool {
         didSet { UserDefaults.standard.set(notificationsMuted, forKey: "notificationsMuted") }
     }
+    /// Positive = minutes to keep finished rows, 0 = never hide,
+    /// negative = hide immediately (same tick the state flips done).
+    static func hideInterval(_ minutes: Double) -> TimeInterval? {
+        if minutes > 0 { return minutes * 60 }
+        if minutes < 0 { return 0 }
+        return nil
+    }
+
     /// Minutes after which finished sessions hide from the list; 0 = never.
     @Published var doneAutoHideMinutes: Double {
         didSet {
@@ -189,7 +197,7 @@ final class AppModel: ObservableObject {
                                                   stallThreshold: stallMinutes * 60,
                                                   precisionModeEnabled: precision,
                                                   adapters: adapters,
-                                                  doneAutoHide: hideMinutes > 0 ? hideMinutes * 60 : nil))
+                                                  doneAutoHide: Self.hideInterval(hideMinutes)))
         processWatcher = ProcessWatcher(adapters: adapters)
         notificationsMuted = defaults.bool(forKey: "notificationsMuted")
         doneAutoHideMinutes = defaults.double(forKey: "doneAutoHideMinutes")
@@ -630,7 +638,7 @@ final class AppModel: ObservableObject {
             stallThreshold: stallThresholdMinutes * 60,
             precisionModeEnabled: precisionModeEnabled,
             adapters: adapters,
-            doneAutoHide: doneAutoHideMinutes > 0 ? doneAutoHideMinutes * 60 : nil)
+            doneAutoHide: Self.hideInterval(doneAutoHideMinutes))
         Task {
             await store.updateConfiguration(configuration)
             await refresh()
