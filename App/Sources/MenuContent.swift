@@ -252,7 +252,9 @@ struct MenuContent: View {
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                             .frame(width: 44, alignment: .trailing)
-                            .help(entry.id.hasPrefix("gemini") ? "Gemini keeps its usage limits on Google's servers only — nothing is stored on your Mac. The plan tier comes from your Google account." : "Only the plan tier is available offline right now — the % appears once the agent syncs its quota to disk.")
+                            .help(entry.id.hasPrefix("gemini") ? "Gemini keeps its usage limits on Google's servers only — nothing is stored on your Mac. The plan tier comes from your Google account."
+                                  : entry.id == "cursor" ? "Cursor stores only your plan tier on this Mac. Turn on Live usage in Settings → Advanced to fetch your real numbers from cursor.com with your own login."
+                                  : "Only the plan tier is available offline right now — the % appears once the agent syncs its quota to disk.")
                     } else if let resets = limit.resetsAt, resets < Date() {
                         ProgressView(value: 0)
                             .tint(.green)
@@ -291,6 +293,8 @@ struct MenuContent: View {
                         .foregroundStyle(.tertiary)
                         .help(entry.id.hasPrefix("antigravity")
                               ? "Antigravity syncs its quota through the Antigravity IDE's account state. Open the IDE once (any window) and the reading appears here."
+                              : entry.id == "manus"
+                              ? "Manus keeps your credits on its servers only — nothing about them is stored on your Mac, so Agent Babysitter can't show them without guessing. Check credits in the Manus app."
                               : entry.running
                               ? "This agent doesn't record its limit usage on your Mac, and Agent Babysitter never guesses or phones home."
                               : "Open this app and the reading appears once it records usage.")

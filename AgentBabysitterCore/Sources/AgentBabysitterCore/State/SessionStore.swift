@@ -340,12 +340,33 @@ public actor SessionStore {
                 }
             }
         }
+        // Cursor: plan tier from its own state db (verified: that's all it
+        // persists locally — the % needs the opt-in live fetch, app layer).
+        if latest["cursor"] == nil, let usage = cursorUsage() {
+            latest["cursor"] = usage
+        }
         return latest
     }
 
     /// Agents whose app/CLI currently has a matching process — "open".
     public func runningAgentIDs() -> Set<String> {
         Set(latestProcessesByAdapter.filter { !$0.value.isEmpty }.keys)
+    }
+
+    private var cursorUsageCache: (mtime: Date, usage: UsageLimitSnapshot?)?
+
+    /// Same mtime-cached copy-and-read as Antigravity below; Cursor's db is
+    /// ~1MB and the 2s tick must not recopy it.
+    private func cursorUsage() -> UsageLimitSnapshot? {
+        guard let adapter = configuration.adapters.first(where: { $0.id == "cursor" })
+                as? CursorAdapter,
+              let mtime = (try? FileManager.default.attributesOfItem(
+                  atPath: adapter.stateDBURL.path))?[.modificationDate] as? Date
+        else { return nil }
+        if let cache = cursorUsageCache, cache.mtime == mtime { return cache.usage }
+        let usage = adapter.usageFromDisk()
+        cursorUsageCache = (mtime, usage)
+        return usage
     }
 
     private var antigravityUsageCache: (mtime: Date, usage: UsageLimitSnapshot?)?

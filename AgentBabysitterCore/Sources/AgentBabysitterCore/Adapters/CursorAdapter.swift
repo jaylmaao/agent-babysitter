@@ -25,7 +25,25 @@ public struct CursorAdapter: AgentAdapter {
         transcriptRoot = appSupport.appendingPathComponent("Cursor/User/globalStorage")
     }
 
-    var stateDBURL: URL { transcriptRoot.appendingPathComponent("state.vscdb") }
+    public var stateDBURL: URL { transcriptRoot.appendingPathComponent("state.vscdb") }
+
+    /// Plan tier from Cursor's own state (`cursorAuth/stripeMembershipType`,
+    /// verified on a real install). That's ALL Cursor persists about usage —
+    /// no percentages exist locally; the real numbers live behind cursor.com
+    /// with the session token, which the app layer's opt-in live fetch uses.
+    public func usageFromDisk() -> UsageLimitSnapshot? {
+        guard let membership = Self.itemTableValue(key: "cursorAuth/stripeMembershipType",
+                                                   inStateDBAt: stateDBURL) else { return nil }
+        let mtime = (try? FileManager.default.attributesOfItem(atPath: stateDBURL.path))
+            .flatMap { $0[.modificationDate] as? Date } ?? Date()
+        return UsageLimitSnapshot(usedPercent: nil, windowMinutes: 300, resetsAt: nil,
+                                  capturedAt: mtime, plan: membership.capitalized)
+    }
+
+    /// The session token the app layer needs for the opt-in live fetch.
+    public func storedAccessToken() -> String? {
+        Self.itemTableValue(key: "cursorAuth/accessToken", inStateDBAt: stateDBURL)
+    }
 
     public struct Composer: Equatable {
         public let id: String
@@ -65,6 +83,39 @@ public struct CursorAdapter: AgentAdapter {
     }
 
     private static func copiedQuery(storeAt url: URL) -> [(String, String)]? {
+        withCopiedDB(at: url) { db in
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db,
+                "SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'",
+                -1, &stmt, nil) == SQLITE_OK else { return nil }
+            defer { sqlite3_finalize(stmt) }
+            var rows: [(String, String)] = []
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                guard let k = sqlite3_column_text(stmt, 0),
+                      let v = sqlite3_column_text(stmt, 1) else { continue }
+                rows.append((String(cString: k), String(cString: v)))
+            }
+            return rows
+        }
+    }
+
+    static func itemTableValue(key: String, inStateDBAt url: URL) -> String? {
+        withCopiedDB(at: url) { db in
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, "SELECT value FROM ItemTable WHERE key = ?",
+                                     -1, &stmt, nil) == SQLITE_OK else { return nil }
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_bind_text(stmt, 1, key, -1,
+                              unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            guard sqlite3_step(stmt) == SQLITE_ROW,
+                  let value = sqlite3_column_text(stmt, 0) else { return nil }
+            return String(cString: value)
+        }
+    }
+
+    /// Cursor holds the db + WAL open; copy the trio and read the copy.
+    private static func withCopiedDB<T>(at url: URL,
+                                        _ body: (OpaquePointer) -> T?) -> T? {
         let fm = FileManager.default
         let tmpDir = fm.temporaryDirectory
             .appendingPathComponent("cursor-state-\(UUID().uuidString)")
@@ -81,18 +132,7 @@ public struct CursorAdapter: AgentAdapter {
                 sqlite3_close(db); return nil
             }
             defer { sqlite3_close(db) }
-            var stmt: OpaquePointer?
-            guard sqlite3_prepare_v2(db,
-                "SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'",
-                -1, &stmt, nil) == SQLITE_OK else { return nil }
-            defer { sqlite3_finalize(stmt) }
-            var rows: [(String, String)] = []
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                guard let k = sqlite3_column_text(stmt, 0),
-                      let v = sqlite3_column_text(stmt, 1) else { continue }
-                rows.append((String(cString: k), String(cString: v)))
-            }
-            return rows
+            return db.flatMap(body)
         } catch {
             return nil
         }

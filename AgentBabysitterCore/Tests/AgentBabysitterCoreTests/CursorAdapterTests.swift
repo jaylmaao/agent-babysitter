@@ -183,3 +183,118 @@ final class CursorAdapterTests: XCTestCase {
         XCTAssertEqual(reader.turnPhase, .completed)
     }
 }
+
+// MARK: - Usage (plan tier on disk; live JSON shapes captured 2026-07)
+
+final class CursorUsageTests: XCTestCase {
+
+    private func makeAppSupport() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cursor-usage-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("Cursor/User/globalStorage"),
+            withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        return root
+    }
+
+    private func writeItemTable(at url: URL, rows: [(String, String)]) {
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(url.path, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        sqlite3_exec(db, "CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value BLOB)",
+                     nil, nil, nil)
+        for (key, value) in rows {
+            var stmt: OpaquePointer?
+            sqlite3_prepare_v2(db, "INSERT INTO ItemTable VALUES (?, ?)", -1, &stmt, nil)
+            sqlite3_bind_text(stmt, 1, key, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            sqlite3_bind_text(stmt, 2, value, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
+            XCTAssertEqual(sqlite3_step(stmt), SQLITE_DONE)
+            sqlite3_finalize(stmt)
+        }
+    }
+
+    func testPlanTierFromDisk() throws {
+        let appSupport = try makeAppSupport()
+        let adapter = CursorAdapter(appSupport: appSupport)
+        writeItemTable(at: adapter.stateDBURL, rows: [
+            ("cursorAuth/stripeMembershipType", "free"),
+            ("cursorAuth/accessToken", "tok"),
+        ])
+        let usage = adapter.usageFromDisk()
+        XCTAssertEqual(usage?.plan, "Free")
+        XCTAssertNil(usage?.usedPercent)
+        XCTAssertFalse(usage?.isLive ?? true)
+        XCTAssertEqual(adapter.storedAccessToken(), "tok")
+    }
+
+    func testNoPlanKeyMeansNoSnapshot() throws {
+        let appSupport = try makeAppSupport()
+        let adapter = CursorAdapter(appSupport: appSupport)
+        writeItemTable(at: adapter.stateDBURL, rows: [])
+        XCTAssertNil(adapter.usageFromDisk())
+        XCTAssertNil(adapter.storedAccessToken())
+    }
+
+    func testUserIDFromSessionJWT() {
+        // Same claim layout as the real token: sub = "<provider>|user_…".
+        func b64url(_ s: String) -> String {
+            Data(s.utf8).base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+        }
+        let jwt = [b64url(#"{"alg":"HS256"}"#),
+                   b64url(#"{"sub":"google-oauth2|user_01ABC","type":"session"}"#),
+                   "sig"].joined(separator: ".")
+        XCTAssertEqual(CursorUsageParsing.userID(fromSessionJWT: jwt), "user_01ABC")
+        XCTAssertNil(CursorUsageParsing.userID(fromSessionJWT: "not-a-jwt"))
+        let noUser = [b64url("{}"), b64url(#"{"sub":"auth0|other"}"#), "s"]
+            .joined(separator: ".")
+        XCTAssertNil(CursorUsageParsing.userID(fromSessionJWT: noUser))
+    }
+
+    func testUncappedPlanGivesPlanOnlyRowWithRequestCount() {
+        // Verbatim live response shape from a real free account.
+        let json = Data(#"""
+        {"gpt-4":{"numRequests":12,"numRequestsTotal":12,"numTokens":8000,
+         "maxTokenUsage":null,"maxRequestUsage":null},
+         "startOfMonth":"2026-06-12T16:31:12.692Z"}
+        """#.utf8)
+        let snapshot = CursorUsageParsing.snapshot(fromUsageJSON: json, plan: "Free")
+        XCTAssertNil(snapshot?.usedPercent)
+        XCTAssertEqual(snapshot?.plan, "Free · 12 requests")
+        XCTAssertTrue(snapshot?.isLive ?? false)
+        XCTAssertNotNil(snapshot?.resetsAt)
+    }
+
+    func testZeroRequestsKeepsBarePlanLabel() {
+        let json = Data(#"""
+        {"gpt-4":{"numRequests":0,"numRequestsTotal":0,"numTokens":0,
+         "maxTokenUsage":null,"maxRequestUsage":null},
+         "startOfMonth":"2026-06-12T16:31:12.692Z"}
+        """#.utf8)
+        XCTAssertEqual(CursorUsageParsing.snapshot(fromUsageJSON: json, plan: "Free")?.plan,
+                       "Free")
+    }
+
+    func testCappedPlanGivesRealPercent() {
+        // Legacy request-capped plans publish maxRequestUsage (500 on Pro).
+        let json = Data(#"""
+        {"gpt-4":{"numRequests":150,"numRequestsTotal":900,"numTokens":1,
+         "maxTokenUsage":null,"maxRequestUsage":500},
+         "startOfMonth":"2026-06-12T16:31:12.692Z"}
+        """#.utf8)
+        let snapshot = CursorUsageParsing.snapshot(fromUsageJSON: json, plan: "Pro")
+        XCTAssertEqual(snapshot?.usedPercent ?? 0, 30, accuracy: 0.01)
+        XCTAssertEqual(snapshot?.plan, "Pro")
+        let resets = try? XCTUnwrap(snapshot?.resetsAt)
+        // One month after the cycle start.
+        XCTAssertEqual(resets.map { Calendar.current.component(.month, from: $0) }, 7)
+    }
+
+    func testMalformedUsageJSONIsRejected() {
+        XCTAssertNil(CursorUsageParsing.snapshot(fromUsageJSON: Data("[]".utf8), plan: nil))
+        XCTAssertNil(CursorUsageParsing.snapshot(fromUsageJSON: Data("{}".utf8), plan: nil))
+    }
+}

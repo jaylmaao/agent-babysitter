@@ -276,18 +276,22 @@ final class AppModel: ObservableObject {
             await refresh()
             return
         }
-        if forceFetch || runningAgentIDs.contains("claude-code") {
-            let result = await liveUsageService.fetch(enabled: true)
-            liveUsage = result.limits
+        if forceFetch || !runningAgentIDs.isDisjoint(with: ["claude-code", "cursor"]) {
+            let agents: Set<String> = forceFetch
+                ? ["claude-code", "cursor"]
+                : runningAgentIDs.intersection(["claude-code", "cursor"])
+            let result = await liveUsageService.fetch(enabled: true, agents: agents)
+            liveUsage = liveUsage.merging(result.limits) { _, new in new }
             liveUsageStatus = result.failure
             await refresh()
         }
         liveUsageTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self, self.liveUsageEnabled,
-                      self.runningAgentIDs.contains("claude-code") else { return }
-                let result = await self.liveUsageService.fetch(enabled: true)
-                self.liveUsage = result.limits
+                guard let self else { return }
+                let agents = self.runningAgentIDs.intersection(["claude-code", "cursor"])
+                guard self.liveUsageEnabled, !agents.isEmpty else { return }
+                let result = await self.liveUsageService.fetch(enabled: true, agents: agents)
+                self.liveUsage = self.liveUsage.merging(result.limits) { _, new in new }
                 self.liveUsageStatus = result.failure
                 await self.refresh()
             }
@@ -467,6 +471,7 @@ final class AppModel: ObservableObject {
         // tick must not churn plists all day.
         let debugLimits = usageLimits.mapValues {
             "\($0.usedPercent.map { String(Int($0)) } ?? "-")% \($0.plan ?? "")"
+                + ($0.isLive ? " · live" : "")
         }
         if debugLimits != lastDebugLimits {
             lastDebugLimits = debugLimits

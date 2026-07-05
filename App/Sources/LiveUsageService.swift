@@ -29,16 +29,63 @@ actor LiveUsageService {
     }
 
     /// Live snapshots per agent id, plus a user-readable reason when a
-    /// fetch produced nothing.
-    func fetch(enabled: Bool) async -> (limits: [String: UsageLimitSnapshot], failure: String?) {
+    /// fetch produced nothing. `agents` limits which vendors are asked —
+    /// the Claude probe costs a token, so it only runs while Claude is
+    /// actually in use.
+    func fetch(enabled: Bool,
+               agents: Set<String> = ["claude-code", "cursor"]) async
+        -> (limits: [String: UsageLimitSnapshot], failure: String?) {
         guard enabled else { return ([:], nil) }
-        switch await fetchClaudeCode() {
-        case .snapshot(let snapshot):
-            return (["claude-code": snapshot], nil)
-        case .unavailable(let reason):
-            BabysitterLog.process.info("live Claude usage unavailable: \(reason, privacy: .public)")
-            return ([:], reason)
+        var limits: [String: UsageLimitSnapshot] = [:]
+        var failure: String?
+        if agents.contains("claude-code") {
+            switch await fetchClaudeCode() {
+            case .snapshot(let snapshot):
+                limits["claude-code"] = snapshot
+            case .unavailable(let reason):
+                BabysitterLog.process.info("live Claude usage unavailable: \(reason, privacy: .public)")
+                failure = reason
+            }
         }
+        // Cursor rides the same toggle; skipped silently when Cursor isn't
+        // installed or has no stored login (nothing to fetch with).
+        if agents.contains("cursor"), let outcome = await fetchCursor() {
+            switch outcome {
+            case .snapshot(let snapshot):
+                limits["cursor"] = snapshot
+            case .unavailable(let reason):
+                BabysitterLog.process.info("live Cursor usage unavailable: \(reason, privacy: .public)")
+            }
+        }
+        return (limits, failure)
+    }
+
+    // MARK: - Cursor
+
+    /// Cursor's own dashboard endpoint, authenticated with the session token
+    /// Cursor already stores on this Mac (`cursorAuth/accessToken`). Verified
+    /// live: request counts + billing-cycle start; request-capped plans give
+    /// a real 0-100, current plans a plan-tier row with the request count.
+    /// nil = Cursor absent/logged out; not an error worth surfacing.
+    private func fetchCursor() async -> Outcome? {
+        let adapter = CursorAdapter()
+        guard FileManager.default.fileExists(atPath: adapter.stateDBURL.path),
+              let token = adapter.storedAccessToken(),
+              let userID = CursorUsageParsing.userID(fromSessionJWT: token) else { return nil }
+        var components = URLComponents(string: "https://cursor.com/api/usage")!
+        components.queryItems = [URLQueryItem(name: "user", value: userID)]
+        var request = URLRequest(url: components.url!)
+        request.setValue("WorkosCursorSessionToken=\(userID)%3A%3A\(token)",
+                         forHTTPHeaderField: "Cookie")
+        guard let (data, response) = try? await session.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200 else {
+            return .unavailable(reason: "cursor.com didn't answer — connection or expired login")
+        }
+        let plan = adapter.usageFromDisk()?.plan
+        guard let snapshot = CursorUsageParsing.snapshot(fromUsageJSON: data, plan: plan) else {
+            return .unavailable(reason: "cursor.com answered with an unrecognized shape")
+        }
+        return .snapshot(snapshot)
     }
 
     // MARK: - Claude Code

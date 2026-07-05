@@ -134,7 +134,7 @@ struct PreferencesView: View {
                 }
                 Toggle(isOn: $model.liveUsageEnabled) {
                     Text("Live usage % (connects to the internet)")
-                    Text("Off by default, everything else stays fully offline. When on, the app uses your existing Claude login (terminal or desktop app) to ask Anthropic for your real 5-hour and weekly usage — a tiny 1-token request, every 5 minutes while Claude is in use. It only ever contacts api.anthropic.com. Codex and Antigravity already show real usage with no network.")
+                    Text("Off by default, everything else stays fully offline. When on, the app uses your existing logins to fetch real usage: Claude via a tiny 1-token request to api.anthropic.com (5-hour + weekly %), and Cursor via a read-only request to cursor.com (request counts, and a real % on request-capped plans). Nothing else is ever contacted. Codex and Antigravity already show real usage with no network.")
                 }
                 if model.liveUsageEnabled, let status = model.liveUsageStatus {
                     Label(status, systemImage: "info.circle")
