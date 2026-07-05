@@ -99,12 +99,14 @@ public struct CostAccumulator: Sendable {
     public private(set) var dailyCosts: [Date: SessionCost] = [:]
 
     private let table: PriceTable
-    private let calendar: Calendar
+    /// nil = follow the live local timezone per entry (never frozen); tests
+    /// pin an explicit zone for determinism.
+    private let timeZoneOverride: TimeZone?
     private var seenMessageIDs: Set<String> = []
 
-    public init(table: PriceTable = .bundled, calendar: Calendar = .current) {
+    public init(table: PriceTable = .bundled, timeZone: TimeZone? = nil) {
         self.table = table
-        self.calendar = calendar
+        self.timeZoneOverride = timeZone
     }
 
     public mutating func consume(_ entry: TranscriptEntry) {
@@ -130,7 +132,8 @@ public struct CostAccumulator: Sendable {
         cost.dollars += dollars
         if let unknownModel { cost.unknownModels.insert(unknownModel) }
 
-        let day = calendar.startOfDay(for: entry.timestamp ?? Date())
+        let day = LocalDay.start(of: entry.timestamp ?? Date(),
+                                 timeZone: timeZoneOverride ?? .current)
         var daily = dailyCosts[day] ?? SessionCost()
         daily.totalTokens += usage.totalTokens
         daily.dollars += dollars

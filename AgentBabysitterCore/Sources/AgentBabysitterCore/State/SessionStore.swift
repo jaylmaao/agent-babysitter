@@ -282,8 +282,8 @@ public actor SessionStore {
     /// sessions hidden from the row list; recomputed from transcripts, no
     /// cost database.
     public func todayCost(at now: Date = Date(),
-                          calendar: Calendar = .current) -> SessionCost {
-        let midnight = calendar.startOfDay(for: now)
+                          timeZone: TimeZone = .current) -> SessionCost {
+        let midnight = LocalDay.start(of: now, timeZone: timeZone)
         var total = SessionCost()
         for (_, tracked) in sessions {
             guard let daily = tracked.reader.dailyCosts[midnight] else { continue }
@@ -296,8 +296,8 @@ public actor SessionStore {
 
     /// Today's dollars per agent — the stats view's raw material.
     public func todayCostByAgent(at now: Date = Date(),
-                                 calendar: Calendar = .current) -> [String: Double] {
-        let midnight = calendar.startOfDay(for: now)
+                                 timeZone: TimeZone = .current) -> [String: Double] {
+        let midnight = LocalDay.start(of: now, timeZone: timeZone)
         var totals: [String: Double] = [:]
         for (_, tracked) in sessions {
             guard let daily = tracked.reader.dailyCosts[midnight] else { continue }

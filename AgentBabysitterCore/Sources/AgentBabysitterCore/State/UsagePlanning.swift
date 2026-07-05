@@ -70,8 +70,10 @@ public enum DailyCostHistory {
         return formatter
     }
 
+    /// Local calendar day as "yyyy-MM-dd" — shares LocalDay's definition so
+    /// the history/stats and the menu's today cost always agree.
     public static func key(for date: Date) -> String {
-        formatter().string(from: date)
+        LocalDay.key(of: date)
     }
 
     /// Folds today's running total in (max guards against dips when old
