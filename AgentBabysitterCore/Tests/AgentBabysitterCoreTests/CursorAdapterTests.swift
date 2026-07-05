@@ -254,47 +254,39 @@ final class CursorUsageTests: XCTestCase {
         XCTAssertNil(CursorUsageParsing.userID(fromSessionJWT: noUser))
     }
 
-    func testUncappedPlanGivesPlanOnlyRowWithRequestCount() {
+    func testSummaryGivesIncludedUsagePercentAndCycleReset() {
         // Verbatim live response shape from a real free account.
         let json = Data(#"""
-        {"gpt-4":{"numRequests":12,"numRequestsTotal":12,"numTokens":8000,
-         "maxTokenUsage":null,"maxRequestUsage":null},
-         "startOfMonth":"2026-06-12T16:31:12.692Z"}
+        {"billingCycleStart":"2026-06-12T16:31:12.692Z",
+         "billingCycleEnd":"2026-07-12T16:31:12.692Z",
+         "membershipType":"free","isUnlimited":false,
+         "individualUsage":{"plan":{"enabled":true,"autoPercentUsed":10,
+           "apiPercentUsed":0,"totalPercentUsed":5}}}
         """#.utf8)
-        let snapshot = CursorUsageParsing.snapshot(fromUsageJSON: json, plan: "Free")
-        XCTAssertNil(snapshot?.usedPercent)
-        XCTAssertEqual(snapshot?.plan, "Free · 12 requests")
+        let snapshot = CursorUsageParsing.snapshot(fromSummaryJSON: json)
+        XCTAssertEqual(snapshot?.usedPercent ?? -1, 5, accuracy: 0.01)
+        XCTAssertEqual(snapshot?.plan, "Free")
         XCTAssertTrue(snapshot?.isLive ?? false)
-        XCTAssertNotNil(snapshot?.resetsAt)
-    }
-
-    func testZeroRequestsKeepsBarePlanLabel() {
-        let json = Data(#"""
-        {"gpt-4":{"numRequests":0,"numRequestsTotal":0,"numTokens":0,
-         "maxTokenUsage":null,"maxRequestUsage":null},
-         "startOfMonth":"2026-06-12T16:31:12.692Z"}
-        """#.utf8)
-        XCTAssertEqual(CursorUsageParsing.snapshot(fromUsageJSON: json, plan: "Free")?.plan,
-                       "Free")
-    }
-
-    func testCappedPlanGivesRealPercent() {
-        // Legacy request-capped plans publish maxRequestUsage (500 on Pro).
-        let json = Data(#"""
-        {"gpt-4":{"numRequests":150,"numRequestsTotal":900,"numTokens":1,
-         "maxTokenUsage":null,"maxRequestUsage":500},
-         "startOfMonth":"2026-06-12T16:31:12.692Z"}
-        """#.utf8)
-        let snapshot = CursorUsageParsing.snapshot(fromUsageJSON: json, plan: "Pro")
-        XCTAssertEqual(snapshot?.usedPercent ?? 0, 30, accuracy: 0.01)
-        XCTAssertEqual(snapshot?.plan, "Pro")
-        let resets = try? XCTUnwrap(snapshot?.resetsAt)
-        // One month after the cycle start.
+        let resets = snapshot?.resetsAt
         XCTAssertEqual(resets.map { Calendar.current.component(.month, from: $0) }, 7)
+        // Window spans the ~30-day billing cycle, not a 5-hour default.
+        XCTAssertGreaterThan(snapshot?.windowMinutes ?? 0, 20 * 24 * 60)
     }
 
-    func testMalformedUsageJSONIsRejected() {
-        XCTAssertNil(CursorUsageParsing.snapshot(fromUsageJSON: Data("[]".utf8), plan: nil))
-        XCTAssertNil(CursorUsageParsing.snapshot(fromUsageJSON: Data("{}".utf8), plan: nil))
+    func testSummaryFullyUsedClampsTo100() {
+        let json = Data(#"""
+        {"membershipType":"pro","billingCycleStart":"2026-06-12T16:31:12.692Z",
+         "billingCycleEnd":"2026-07-12T16:31:12.692Z",
+         "individualUsage":{"plan":{"totalPercentUsed":143}}}
+        """#.utf8)
+        XCTAssertEqual(CursorUsageParsing.snapshot(fromSummaryJSON: json)?.usedPercent, 100)
+    }
+
+    func testMalformedSummaryJSONIsRejected() {
+        XCTAssertNil(CursorUsageParsing.snapshot(fromSummaryJSON: Data("[]".utf8)))
+        XCTAssertNil(CursorUsageParsing.snapshot(fromSummaryJSON: Data("{}".utf8)))
+        // Missing the plan percentage → nil, never a fake 0.
+        XCTAssertNil(CursorUsageParsing.snapshot(
+            fromSummaryJSON: Data(#"{"individualUsage":{"plan":{}}}"#.utf8)))
     }
 }

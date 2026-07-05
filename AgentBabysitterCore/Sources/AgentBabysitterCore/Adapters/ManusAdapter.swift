@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 
 /// Manus — the macOS desktop app (an Electron shell over the cloud agent;
 /// verified 2026-07: no local transcripts, chats cached in IndexedDB).
@@ -104,6 +105,50 @@ public struct ManusAdapter: AgentAdapter {
 
     public func liveNetworkBytes(pid: Int32) -> Int? {
         ProcessNetworkSampler.cumulativeBytes(pid: pid)
+    }
+
+    /// Manus's Chromium `Cookies` store; the app support root is the parent
+    /// of our IndexedDB transcript root.
+    var cookiesDBURL: URL {
+        transcriptRoot.deletingLastPathComponent().appendingPathComponent("Cookies")
+    }
+
+    /// The `session_id` cookie — verified to be the JWT the app forwards as
+    /// `Authorization: Bearer`. Chromium keeps app-domain cookies here in
+    /// plaintext (`value`, not `encrypted_value`). Copied out to read since
+    /// the running app holds the db open. Zero network; the app layer's
+    /// opt-in live fetch uses it.
+    public func storedSessionToken() -> String? {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: cookiesDBURL.path) else { return nil }
+        let tmp = fm.temporaryDirectory
+            .appendingPathComponent("manus-cookies-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: tmp) }
+        do {
+            try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+            let base = tmp.appendingPathComponent("Cookies")
+            try fm.copyItem(at: cookiesDBURL, to: base)
+            for suffix in ["-wal", "-shm"]
+            where fm.fileExists(atPath: cookiesDBURL.path + suffix) {
+                try fm.copyItem(atPath: cookiesDBURL.path + suffix, toPath: base.path + suffix)
+            }
+            var db: OpaquePointer?
+            guard sqlite3_open_v2(base.path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+                sqlite3_close(db); return nil
+            }
+            defer { sqlite3_close(db) }
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db,
+                "SELECT value FROM cookies WHERE name = 'session_id' AND length(value) > 0 LIMIT 1",
+                -1, &stmt, nil) == SQLITE_OK else { return nil }
+            defer { sqlite3_finalize(stmt) }
+            guard sqlite3_step(stmt) == SQLITE_ROW,
+                  let value = sqlite3_column_text(stmt, 0) else { return nil }
+            let token = String(cString: value)
+            return token.isEmpty ? nil : token
+        } catch {
+            return nil
+        }
     }
 }
 

@@ -276,10 +276,10 @@ final class AppModel: ObservableObject {
             await refresh()
             return
         }
-        if forceFetch || !runningAgentIDs.isDisjoint(with: ["claude-code", "cursor"]) {
+        if forceFetch || !runningAgentIDs.isDisjoint(with: ["claude-code", "cursor", "manus"]) {
             let agents: Set<String> = forceFetch
-                ? ["claude-code", "cursor"]
-                : runningAgentIDs.intersection(["claude-code", "cursor"])
+                ? ["claude-code", "cursor", "manus"]
+                : runningAgentIDs.intersection(["claude-code", "cursor", "manus"])
             let result = await liveUsageService.fetch(enabled: true, agents: agents)
             liveUsage = liveUsage.merging(result.limits) { _, new in new }
             liveUsageStatus = result.failure
@@ -288,7 +288,7 @@ final class AppModel: ObservableObject {
         liveUsageTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                let agents = self.runningAgentIDs.intersection(["claude-code", "cursor"])
+                let agents = self.runningAgentIDs.intersection(["claude-code", "cursor", "manus"])
                 guard self.liveUsageEnabled, !agents.isEmpty else { return }
                 let result = await self.liveUsageService.fetch(enabled: true, agents: agents)
                 self.liveUsage = self.liveUsage.merging(result.limits) { _, new in new }

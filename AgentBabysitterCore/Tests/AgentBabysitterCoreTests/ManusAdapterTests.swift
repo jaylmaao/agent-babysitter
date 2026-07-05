@@ -88,3 +88,57 @@ final class ManusAdapterTests: XCTestCase {
         XCTAssertEqual(idle.turnPhase, .completed)
     }
 }
+
+// MARK: - Credits usage (verified live shape 2026-07)
+
+final class ManusUsageTests: XCTestCase {
+
+    // Verbatim GetAvailableCredits response from a real free account.
+    private let realJSON = Data(#"""
+    {"totalCredits":1276,"freeCredits":1000,"refreshCredits":276,
+     "maxRefreshCredits":300,"nextRefreshTime":"2026-07-06T05:00:00Z",
+     "refreshInterval":"daily","qualityTrial":2,"userFlag":{"drc16":false}}
+    """#.utf8)
+
+    func testParsesCreditFields() {
+        let c = ManusUsageParsing.credits(fromJSON: realJSON)
+        XCTAssertEqual(c?.total, 1276)
+        XCTAssertEqual(c?.free, 1000)
+        XCTAssertEqual(c?.refresh, 276)
+        XCTAssertEqual(c?.maxRefresh, 300)
+        XCTAssertEqual(c?.interval, "daily")
+        XCTAssertNotNil(c?.nextRefresh)
+    }
+
+    func testDailyRefreshBecomesUsedPercentWithBalanceInLabel() {
+        let snapshot = ManusUsageParsing.snapshot(fromJSON: realJSON, plan: "free")
+        // 24 of 300 daily credits consumed → 8%.
+        XCTAssertEqual(snapshot?.usedPercent ?? -1, 8, accuracy: 0.5)
+        XCTAssertEqual(snapshot?.windowMinutes, 24 * 60)
+        XCTAssertTrue(snapshot?.isLive ?? false)
+        // The balance the user cares about rides in the label.
+        XCTAssertEqual(snapshot?.plan, "Free · 1,276 credits")
+        XCTAssertNotNil(snapshot?.resetsAt)
+    }
+
+    func testNoRefreshingQuotaGivesPlanOnlyRow() {
+        // A plan with no daily refresh (maxRefreshCredits 0) → balance only.
+        let json = Data(#"""
+        {"totalCredits":5000,"freeCredits":0,"refreshCredits":0,
+         "maxRefreshCredits":0,"refreshInterval":"none"}
+        """#.utf8)
+        let snapshot = ManusUsageParsing.snapshot(fromJSON: json, plan: "pro")
+        XCTAssertNil(snapshot?.usedPercent)
+        XCTAssertEqual(snapshot?.plan, "Pro · 5,000 credits")
+    }
+
+    func testMissingPlanStillShowsCredits() {
+        let snapshot = ManusUsageParsing.snapshot(fromJSON: realJSON, plan: nil)
+        XCTAssertEqual(snapshot?.plan, "1,276 credits")
+    }
+
+    func testMalformedCreditsRejected() {
+        XCTAssertNil(ManusUsageParsing.credits(fromJSON: Data("[]".utf8)))
+        XCTAssertNil(ManusUsageParsing.snapshot(fromJSON: Data("{}".utf8), plan: "free"))
+    }
+}

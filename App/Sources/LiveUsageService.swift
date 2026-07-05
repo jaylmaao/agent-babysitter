@@ -33,7 +33,7 @@ actor LiveUsageService {
     /// the Claude probe costs a token, so it only runs while Claude is
     /// actually in use.
     func fetch(enabled: Bool,
-               agents: Set<String> = ["claude-code", "cursor"]) async
+               agents: Set<String> = ["claude-code", "cursor", "manus"]) async
         -> (limits: [String: UsageLimitSnapshot], failure: String?) {
         guard enabled else { return ([:], nil) }
         var limits: [String: UsageLimitSnapshot] = [:]
@@ -47,14 +47,18 @@ actor LiveUsageService {
                 failure = reason
             }
         }
-        // Cursor rides the same toggle; skipped silently when Cursor isn't
-        // installed or has no stored login (nothing to fetch with).
+        // Cursor and Manus ride the same toggle; each skipped silently when
+        // not installed or not logged in (nothing to fetch with).
         if agents.contains("cursor"), let outcome = await fetchCursor() {
-            switch outcome {
-            case .snapshot(let snapshot):
-                limits["cursor"] = snapshot
-            case .unavailable(let reason):
+            if case .snapshot(let snapshot) = outcome { limits["cursor"] = snapshot }
+            else if case .unavailable(let reason) = outcome {
                 BabysitterLog.process.info("live Cursor usage unavailable: \(reason, privacy: .public)")
+            }
+        }
+        if agents.contains("manus"), let outcome = await fetchManus() {
+            if case .snapshot(let snapshot) = outcome { limits["manus"] = snapshot }
+            else if case .unavailable(let reason) = outcome {
+                BabysitterLog.process.info("live Manus usage unavailable: \(reason, privacy: .public)")
             }
         }
         return (limits, failure)
@@ -64,26 +68,63 @@ actor LiveUsageService {
 
     /// Cursor's own dashboard endpoint, authenticated with the session token
     /// Cursor already stores on this Mac (`cursorAuth/accessToken`). Verified
-    /// live: request counts + billing-cycle start; request-capped plans give
-    /// a real 0-100, current plans a plan-tier row with the request count.
-    /// nil = Cursor absent/logged out; not an error worth surfacing.
+    /// live: `POST /api/usage-summary` returns the "Included Usage NN%" and
+    /// billing-cycle reset the Cursor app itself shows. nil = Cursor
+    /// absent/logged out; not an error worth surfacing.
     private func fetchCursor() async -> Outcome? {
         let adapter = CursorAdapter()
         guard FileManager.default.fileExists(atPath: adapter.stateDBURL.path),
               let token = adapter.storedAccessToken(),
               let userID = CursorUsageParsing.userID(fromSessionJWT: token) else { return nil }
-        var components = URLComponents(string: "https://cursor.com/api/usage")!
-        components.queryItems = [URLQueryItem(name: "user", value: userID)]
-        var request = URLRequest(url: components.url!)
+        var request = URLRequest(url: URL(string: "https://cursor.com/api/usage-summary")!)
+        request.httpMethod = "POST"
         request.setValue("WorkosCursorSessionToken=\(userID)%3A%3A\(token)",
                          forHTTPHeaderField: "Cookie")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // The endpoint rejects requests without a matching origin.
+        request.setValue("https://cursor.com", forHTTPHeaderField: "Origin")
+        request.httpBody = Data("{}".utf8)
         guard let (data, response) = try? await session.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200 else {
             return .unavailable(reason: "cursor.com didn't answer — connection or expired login")
         }
-        let plan = adapter.usageFromDisk()?.plan
-        guard let snapshot = CursorUsageParsing.snapshot(fromUsageJSON: data, plan: plan) else {
+        guard let snapshot = CursorUsageParsing.snapshot(fromSummaryJSON: data) else {
             return .unavailable(reason: "cursor.com answered with an unrecognized shape")
+        }
+        return .snapshot(snapshot)
+    }
+
+    /// Manus's credit balance via its Connect-RPC endpoint, authenticated
+    /// with the `session_id` JWT Manus already stores on this Mac (it's the
+    /// Bearer token the app itself sends). Verified live against
+    /// `user.v1.UserService/GetAvailableCredits`. nil = Manus absent/logged
+    /// out. Only ever contacts api.manus.im.
+    private func fetchManus() async -> Outcome? {
+        let adapter = ManusAdapter()
+        guard let token = adapter.storedSessionToken() else { return nil }
+        func post(_ path: String) async -> Data? {
+            var request = URLRequest(url: URL(string: "https://api.manus.im/\(path)")!)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("1", forHTTPHeaderField: "Connect-Protocol-Version")
+            request.setValue("desktop", forHTTPHeaderField: "x-client-type")
+            request.httpBody = Data("{}".utf8)
+            guard let (data, response) = try? await session.data(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            return data
+        }
+        guard let creditsData = await post("user.v1.UserService/GetAvailableCredits") else {
+            return .unavailable(reason: "api.manus.im didn't answer — connection or expired login")
+        }
+        // Plan tier is a bonus; the credits snapshot stands without it.
+        var plan: String?
+        if let infoData = await post("user.v1.UserService/UserInfo"),
+           let info = (try? JSONSerialization.jsonObject(with: infoData)) as? [String: Any] {
+            plan = info["membershipVersion"] as? String
+        }
+        guard let snapshot = ManusUsageParsing.snapshot(fromJSON: creditsData, plan: plan) else {
+            return .unavailable(reason: "api.manus.im answered with an unrecognized shape")
         }
         return .snapshot(snapshot)
     }

@@ -2,11 +2,11 @@ import Foundation
 
 /// Pure parsing for the opt-in live Cursor usage fetch — in Core so it's
 /// unit-tested; the app layer does the networking. Verified live 2026-07:
-/// `GET cursor.com/api/usage?user=<id>` with the WorkosCursorSessionToken
-/// cookie (`<userID>::<sessionJWT>`) returns request counts per model plus
-/// the billing-cycle start. Legacy request-capped plans carry
-/// `maxRequestUsage` (→ a real 0-100); current plans return null there and
-/// the row stays plan-only.
+/// `POST cursor.com/api/usage-summary` (with the WorkosCursorSessionToken
+/// cookie `<userID>::<sessionJWT>` and an `Origin: https://cursor.com`
+/// header) returns the same "Included Usage NN%" and cycle reset the
+/// Cursor app's own Plan & Usage page shows. This is the real percentage —
+/// the older `/api/usage` request-count endpoint didn't carry it.
 public enum CursorUsageParsing {
 
     /// The user id lives in the session JWT's `sub` claim after the auth
@@ -27,40 +27,29 @@ public enum CursorUsageParsing {
         return String(id)
     }
 
-    /// Parses `/api/usage`. Real shape (captured live):
-    /// `{"gpt-4":{"numRequests":0,"numRequestsTotal":0,"numTokens":0,
-    ///   "maxTokenUsage":null,"maxRequestUsage":null},
-    ///  "startOfMonth":"2026-06-12T16:31:12.692Z"}`
-    public static func snapshot(fromUsageJSON data: Data, plan: String?,
+    /// Parses `/api/usage-summary`. Real shape (captured live):
+    /// `{"billingCycleStart":"…","billingCycleEnd":"…","membershipType":"free",
+    ///   "individualUsage":{"plan":{"totalPercentUsed":5, …}}}`
+    /// `totalPercentUsed` is the "Included Usage" number the app displays; the
+    /// cycle end is the reset date.
+    public static func snapshot(fromSummaryJSON data: Data,
                                 capturedAt: Date = Date()) -> UsageLimitSnapshot? {
         guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let premium = root["gpt-4"] as? [String: Any] else { return nil }
-        let requests = (premium["numRequests"] as? Double) ?? 0
-        let cap = premium["maxRequestUsage"] as? Double
-
-        var resets: Date?
+              let usage = root["individualUsage"] as? [String: Any],
+              let plan = usage["plan"] as? [String: Any],
+              let percent = (plan["totalPercentUsed"] as? NSNumber)?.doubleValue else {
+            return nil
+        }
+        let membership = (root["membershipType"] as? String).map { $0.capitalized }
+        let end = (root["billingCycleEnd"] as? String).flatMap(parseISO)
+        let start = (root["billingCycleStart"] as? String).flatMap(parseISO)
         var windowMinutes = 30 * 24 * 60
-        if let text = root["startOfMonth"] as? String,
-           let start = parseISO(text),
-           let end = Calendar.current.date(byAdding: .month, value: 1, to: start) {
-            resets = end
+        if let start, let end, end > start {
             windowMinutes = max(1, Int(end.timeIntervalSince(start) / 60))
         }
-
-        if let cap, cap > 0 {
-            return UsageLimitSnapshot(
-                usedPercent: min(max(requests / cap * 100, 0), 100),
-                windowMinutes: windowMinutes, resetsAt: resets,
-                capturedAt: capturedAt, plan: plan, isLive: true)
-        }
-        // No cap published (current plans): honest plan-only row, with the
-        // live request count folded into the label when there is one.
-        let label: String? = requests > 0
-            ? [plan, "\(Int(requests)) requests"].compactMap { $0 }.joined(separator: " · ")
-            : plan
-        return UsageLimitSnapshot(usedPercent: nil, windowMinutes: windowMinutes,
-                                  resetsAt: resets, capturedAt: capturedAt,
-                                  plan: label, isLive: true)
+        return UsageLimitSnapshot(usedPercent: min(max(percent, 0), 100),
+                                  windowMinutes: windowMinutes, resetsAt: end,
+                                  capturedAt: capturedAt, plan: membership, isLive: true)
     }
 
     private static func parseISO(_ text: String) -> Date? {

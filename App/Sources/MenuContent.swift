@@ -294,7 +294,7 @@ struct MenuContent: View {
                         .help(entry.id.hasPrefix("antigravity")
                               ? "Antigravity syncs its quota through the Antigravity IDE's account state. Open the IDE once (any window) and the reading appears here."
                               : entry.id == "manus"
-                              ? "Manus keeps your credits on its servers only — nothing about them is stored on your Mac, so Agent Babysitter can't show them without guessing. Check credits in the Manus app."
+                              ? "Manus keeps your credits on its servers. Turn on Live usage in Settings → Advanced to fetch your credit balance using your existing Manus login."
                               : entry.running
                               ? "This agent doesn't record its limit usage on your Mac, and Agent Babysitter never guesses or phones home."
                               : "Open this app and the reading appears once it records usage.")
@@ -325,7 +325,7 @@ struct MenuContent: View {
     ) -> String {
         guard let limit = entry.limit else { return "\(entry.name), no usage data" }
         if let used = UsageForecast.estimatedCurrentPercent(limit) ?? limit.usedPercent {
-            var text = "\(entry.name), \(Int(used)) percent of the five hour window used"
+            var text = "\(entry.name), \(Int(used)) percent of the \(windowName(limit.windowMinutes)) used"
             if let resets = limit.resetsAt, resets > Date() {
                 text += ", resets in \(Int(resets.timeIntervalSinceNow / 60)) minutes"
             }
@@ -334,11 +334,26 @@ struct MenuContent: View {
         return "\(entry.name), \(limit.plan ?? "plan") plan"
     }
 
+    /// Human name for a usage window, from its length.
+    private func windowName(_ minutes: Int) -> String {
+        switch minutes {
+        case ..<361: return "five hour window"
+        case ..<(2 * 24 * 60): return "daily quota"
+        case ..<(8 * 24 * 60): return "weekly window"
+        default: return "billing cycle"
+        }
+    }
+
     /// "resets in 2h 22m · week 23%" — whatever parts are known. Only the
     /// weekly part escalates to orange/red, by its own severity (the 5h bar
     /// already carries the 5h color).
     private func limitCaption(_ limit: UsageLimitSnapshot) -> Text? {
         var pieces: [Text] = []
+        // Credit-based agents (Manus) carry the balance in the plan label —
+        // keep it visible even when the bar shows the daily quota.
+        if let plan = limit.plan, plan.localizedCaseInsensitiveContains("credit") {
+            pieces.append(Text(plan).foregroundColor(.secondary.opacity(0.7)))
+        }
         if let phrase = resetPhrase(limit.resetsAt) {
             pieces.append(Text(phrase).foregroundColor(.secondary.opacity(0.7)))
         }
