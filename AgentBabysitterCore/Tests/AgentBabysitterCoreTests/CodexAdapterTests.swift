@@ -56,12 +56,13 @@ final class CodexAdapterTests: XCTestCase {
         XCTAssertEqual(tailer.lastKnownEntrypoint, "Codex Desktop")
         XCTAssertFalse(tailer.isSidechain)
 
-        // token_count usage: OpenAI models have no price entry — token counts
-        // surface with "pricing unknown", dollars are never guessed. Cached
-        // re-reads (3000 in the fixture) are excluded from the count.
+        // token_count usage priced via the model from turn_context (gpt-5.5:
+        // $5/M input, $30/M output, $0.50/M cached input, no cache-write
+        // fees): 5000·5 + 800·30 + 3000·0.5 per million = $0.0505. Cached
+        // re-reads (3000) are priced but excluded from the token count.
         XCTAssertEqual(tailer.costAccumulator.cost.totalTokens, 5800)
-        XCTAssertEqual(tailer.costAccumulator.cost.dollars, 0)
-        XCTAssertTrue(tailer.costAccumulator.cost.hasUnknownPricing)
+        XCTAssertEqual(tailer.costAccumulator.cost.dollars, 0.0505, accuracy: 1e-9)
+        XCTAssertFalse(tailer.costAccumulator.cost.hasUnknownPricing)
     }
 
     func testFunctionCallIsPendingUntilOutputArrives() throws {

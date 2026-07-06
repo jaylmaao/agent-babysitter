@@ -48,6 +48,15 @@ final class AppModel: ObservableObject {
     @Published var notifyPace: Bool {
         didSet { UserDefaults.standard.set(notifyPace, forKey: "notifyPace") }
     }
+    /// "Show pace from N%" — below this the projection is treated as
+    /// early-window noise. Separate knobs for the 5-hour and weekly windows;
+    /// both gate the menu caption and the pace notification alike.
+    @Published var paceFiveHourFloor: Double {
+        didSet { UserDefaults.standard.set(paceFiveHourFloor, forKey: "paceFiveHourFloor") }
+    }
+    @Published var paceWeeklyFloor: Double {
+        didSet { UserDefaults.standard.set(paceWeeklyFloor, forKey: "paceWeeklyFloor") }
+    }
     /// Warn when today's / this week's estimated spend crosses this many USD.
     /// 0 = off. Alert fires once per day / week.
     @Published var dailyBudget: Double {
@@ -286,6 +295,8 @@ final class AppModel: ObservableObject {
                                      "notifyStalled": true,
                                      "notifyLimit": true,
                                      "notifyPace": true,
+                                     "paceFiveHourFloor": 30.0,
+                                     "paceWeeklyFloor": 30.0,
                                      "limitAlertThreshold": 80.0,
                                      "hotKeyEnabled": true,
                                      "menuBarStyle": "status",
@@ -327,6 +338,8 @@ final class AppModel: ObservableObject {
         weeklyDigestEnabled = defaults.bool(forKey: "weeklyDigestEnabled")
         notifyLimit = defaults.bool(forKey: "notifyLimit")
         notifyPace = defaults.bool(forKey: "notifyPace")
+        paceFiveHourFloor = defaults.double(forKey: "paceFiveHourFloor")
+        paceWeeklyFloor = defaults.double(forKey: "paceWeeklyFloor")
         limitAlertThreshold = defaults.double(forKey: "limitAlertThreshold")
         dailyBudget = defaults.double(forKey: "dailyBudget")
         weeklyBudget = defaults.double(forKey: "weeklyBudget")
@@ -1079,6 +1092,8 @@ final class AppModel: ObservableObject {
         guard notifyPace else { return }
         let outcome = PaceAlertPlanner.plan(limits: limits,
                                             threshold: notifyLimit ? limitAlertThreshold : 101,
+                                            minimumFiveHourPercent: paceFiveHourFloor,
+                                            minimumWeeklyPercent: paceWeeklyFloor,
                                             alertedFiveHour: paceAlertedFiveHour,
                                             alertedWeekly: paceAlertedWeekly)
         persistAlerted(outcome.alertedFiveHour, into: &paceAlertedFiveHour,

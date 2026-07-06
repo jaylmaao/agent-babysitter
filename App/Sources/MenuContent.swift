@@ -359,25 +359,40 @@ struct MenuContent: View {
                     .font(.caption2)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            // Same noise floor as PaceAlertPlanner — the menu must not paint
-            // red for a state the notification path classifies as noise.
-            if let limit = entry.limit, let resets = limit.resetsAt,
-               let exhaustion = UsageForecast.projectedExhaustion(limit),
-               (limit.usedPercent ?? 0) >= PaceAlertPlanner.minimumUsedPercent {
-                let early = resets.timeIntervalSince(exhaustion)
-                // Snapshot renders pin the wall-clock text: absolute times
-                // change every run and flip format at midnight.
-                let at = AppModel.isSnapshotMode ? "2:14 PM"
-                    : NotificationManager.clockTime(exhaustion)
-                Text("on pace to hit the limit at \(at) (~\(Self.humanDuration(early)) early)")
-                    .font(.caption2)
-                    .foregroundStyle(early >= 3600 ? .red : .orange)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .help("At the current pace the window runs out ~\(Self.humanDuration(early)) before it resets. Ease off or switch agents to stretch it.")
+            // Same floors as the pace notification (user-set in Preferences)
+            // — the menu must not paint red for a state the notification
+            // path classifies as noise.
+            if let limit = entry.limit {
+                paceCaption(limit, floor: model.paceFiveHourFloor, prefix: "")
+                if let weekly = limit.weeklyWindow {
+                    paceCaption(weekly, floor: model.paceWeeklyFloor, prefix: "week: ")
+                }
             }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(limitAccessibilityLabel(entry))
+    }
+
+    /// "on pace to hit the limit at 2:14 PM (~40m early)" — shown only from
+    /// the user's chosen usage floor up, so a fresh window's burst doesn't
+    /// paint a scary line. Works for the 5h snapshot and its weeklyWindow.
+    @ViewBuilder
+    private func paceCaption(_ window: UsageLimitSnapshot, floor: Double,
+                             prefix: String) -> some View {
+        if let resets = window.resetsAt,
+           let exhaustion = UsageForecast.projectedExhaustion(window),
+           (window.usedPercent ?? 0) >= floor {
+            let early = resets.timeIntervalSince(exhaustion)
+            // Snapshot renders pin the wall-clock text: absolute times
+            // change every run and flip format at midnight.
+            let at = AppModel.isSnapshotMode ? "2:14 PM"
+                : NotificationManager.clockTime(exhaustion)
+            Text("\(prefix)on pace to hit the limit at \(at) (~\(Self.humanDuration(early)) early)")
+                .font(.caption2)
+                .foregroundStyle(early >= 3600 ? .red : .orange)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .help("At the current pace this window runs out ~\(Self.humanDuration(early)) before it resets. Ease off or switch agents to stretch it. You can choose when this line appears in Settings → Notifications.")
+        }
     }
 
     private func limitAccessibilityLabel(
@@ -394,13 +409,19 @@ struct MenuContent: View {
             if let resets = limit.resetsAt, resets > Date() {
                 text += ", resets in \(Self.humanDuration(resets.timeIntervalSinceNow))"
             }
-            // The pace caption is drawn inside this ignored-children element,
-            // so VoiceOver only hears the projection if it's spoken here.
+            // The pace captions are drawn inside this ignored-children
+            // element, so VoiceOver only hears them if they're spoken here.
             if let resets = limit.resetsAt,
                let exhaustion = UsageForecast.projectedExhaustion(limit),
-               (limit.usedPercent ?? 0) >= PaceAlertPlanner.minimumUsedPercent {
+               (limit.usedPercent ?? 0) >= model.paceFiveHourFloor {
                 let early = resets.timeIntervalSince(exhaustion)
                 text += ", on pace to hit the limit \(Self.humanDuration(early)) before it resets"
+            }
+            if let weekly = limit.weeklyWindow, let resets = weekly.resetsAt,
+               let exhaustion = UsageForecast.projectedExhaustion(weekly),
+               (weekly.usedPercent ?? 0) >= model.paceWeeklyFloor {
+                let early = resets.timeIntervalSince(exhaustion)
+                text += ", weekly window on pace to hit the limit \(Self.humanDuration(early)) before it resets"
             }
             return text
         }
@@ -669,9 +690,20 @@ struct SessionRowView: View {
                 .foregroundStyle(.secondary)
             }
             Spacer()
-            Text(row.cost.display(money: money))
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+            // Price and tokens together, for every app — the price answers
+            // "what did this cost", the tokens answer "how much work was it".
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(row.cost.dollars > 0 ? money(row.cost.dollars)
+                     : row.cost.totalTokens > 0 ? "\(row.cost.formattedTokens) tok" : "—")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                if row.cost.dollars > 0, row.cost.totalTokens > 0 {
+                    Text("\(row.cost.formattedTokens) tok")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .help(costHelp)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
@@ -682,7 +714,8 @@ struct SessionRowView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(row.projectName), \(row.state.label)"
             + (row.title.map { $0 == row.projectName ? "" : ", working on \($0)" } ?? "")
-            + (row.cost.dollars > 0 ? ", about \(Int(row.cost.dollars)) dollars" : ""))
+            + (row.cost.dollars > 0 ? ", about \(Int(row.cost.dollars)) dollars" : "")
+            + (row.cost.totalTokens > 0 ? ", \(row.cost.formattedTokens) tokens" : ""))
         .accessibilityHint("Jumps to this session")
         .contextMenu {
             if let url = row.transcriptURL {
@@ -697,6 +730,17 @@ struct SessionRowView: View {
             Divider()
             Button("Hide Until Next Activity") { onDismiss(row) }
         }
+    }
+
+    /// Plain-language cost explanation for the row's trailing numbers.
+    private var costHelp: String {
+        if row.cost.hasUnknownPricing && row.cost.dollars == 0 {
+            return "Tokens used this session. No price is shown because this model isn't in the price list — dollars are never guessed."
+        }
+        if row.cost.dollars > 0 {
+            return "Estimated from this session's tokens at API list prices. On a subscription plan this isn't an extra charge — it's the value of the usage."
+        }
+        return "No readable usage for this session yet."
     }
 
     /// Waiting rows carry a soft amber wash so the one row that needs a

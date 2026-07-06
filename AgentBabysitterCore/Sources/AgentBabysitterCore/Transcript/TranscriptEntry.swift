@@ -138,6 +138,20 @@ public struct UsageLimitSnapshot: Equatable, Sendable, Codable {
         self.weeklyUsedPercent = weeklyUsedPercent
         self.weeklyResetsAt = weeklyResetsAt
     }
+
+    /// The weekly fields lifted into a window of their own, so pace math
+    /// (which is window-agnostic) can run on them unchanged. nil when the
+    /// agent doesn't publish a weekly reading. Every current source is an
+    /// exactly-7-day window (Codex secondary, Claude seven_day, live 7d
+    /// headers) — revisit if a vendor ever ships a different length.
+    public var weeklyWindow: UsageLimitSnapshot? {
+        guard let weeklyUsedPercent, let weeklyResetsAt else { return nil }
+        return UsageLimitSnapshot(usedPercent: weeklyUsedPercent,
+                                  windowMinutes: 7 * 24 * 60,
+                                  resetsAt: weeklyResetsAt,
+                                  capturedAt: capturedAt,
+                                  plan: nil, isLive: isLive)
+    }
 }
 
 /// A single parsed transcript line.

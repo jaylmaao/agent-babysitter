@@ -134,4 +134,35 @@ final class PaceAlertPlannerTests: XCTestCase {
         XCTAssertTrue(plan(["claude-code": limit]).alerts.isEmpty)   // handoff
         XCTAssertEqual(plan(["claude-code": limit], threshold: 101).alerts.count, 1)
     }
+
+    func testUserFloorsGateEachWindowIndependently() {
+        // 60% on a bad 5h pace + 75% weekly on a bad pace. A 70% 5h floor
+        // silences the 5h warning but must leave the weekly one alone.
+        let limit = onPace(used: 60, weeklyUsed: 75, weeklyResetsInDays: 2)
+        let outcome = PaceAlertPlanner.plan(limits: ["claude-code": limit],
+                                            threshold: 80,
+                                            minimumFiveHourPercent: 70,
+                                            minimumWeeklyPercent: 30,
+                                            alertedFiveHour: [:], alertedWeekly: [:],
+                                            now: now)
+        XCTAssertEqual(outcome.alerts.map(\.isWeekly), [true])
+        // And the mirror: weekly floor above its reading silences weekly only.
+        let flipped = PaceAlertPlanner.plan(limits: ["claude-code": limit],
+                                            threshold: 80,
+                                            minimumFiveHourPercent: 30,
+                                            minimumWeeklyPercent: 80,
+                                            alertedFiveHour: [:], alertedWeekly: [:],
+                                            now: now)
+        XCTAssertEqual(flipped.alerts.map(\.isWeekly), [false])
+    }
+
+    func testWeeklyWindowLiftsTheWeeklyFields() {
+        let limit = onPace(used: 40, weeklyUsed: 75, weeklyResetsInDays: 2)
+        let weekly = try! XCTUnwrap(limit.weeklyWindow)
+        XCTAssertEqual(weekly.usedPercent, 75)
+        XCTAssertEqual(weekly.windowMinutes, 7 * 24 * 60)
+        XCTAssertEqual(weekly.resetsAt, limit.weeklyResetsAt)
+        XCTAssertEqual(weekly.capturedAt, limit.capturedAt)
+        XCTAssertNil(onPace(used: 40).weeklyWindow)
+    }
 }

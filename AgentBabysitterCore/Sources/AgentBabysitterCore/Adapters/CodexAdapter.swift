@@ -139,6 +139,9 @@ enum CodexRolloutParser {
         var input = 0
         var cachedInput = 0
         var output = 0
+        /// Rollouts carry the model on `turn_context`, not on the usage
+        /// events — remember it so token_count entries can be priced.
+        var model: String?
 
         func delta(input newInput: Int, cachedInput newCached: Int,
                    output newOutput: Int) -> (input: Int, cachedInput: Int, output: Int) {
@@ -175,7 +178,10 @@ enum CodexRolloutParser {
         }
 
         func usageOnlyAssistant(_ usage: TokenUsage) -> TranscriptEntry.Kind {
-            .assistant(AssistantPayload(messageID: nil, model: nil, stopReason: nil,
+            // Model from the last turn_context (tracked in UsageState) so
+            // the accumulator can price the tokens.
+            .assistant(AssistantPayload(messageID: nil, model: usageState?.model,
+                                        stopReason: nil,
                                         usage: usage, toolUses: [],
                                         hasText: false, hasThinking: false))
         }
@@ -192,6 +198,9 @@ enum CodexRolloutParser {
                          entrypoint: payload["originator"] as? String)
 
         case "turn_context":
+            if let model = payload["model"] as? String {
+                usageState?.model = model
+            }
             return entry(.meta(rawType: type), cwd: payload["cwd"] as? String)
 
         case "response_item":
@@ -279,8 +288,8 @@ enum CodexRolloutParser {
                             .map { Date(timeIntervalSince1970: $0) })
                 }
                 // Usage-only: phase-neutral in the reducer (arrives after
-                // task_complete). Model pricing is unknown by design — token
-                // counts are shown, dollars are never guessed.
+                // task_complete). Priced when the model (from turn_context)
+                // is in the table; otherwise tokens show unpriced.
                 return entry(usageOnlyAssistant(usage), usageLimit: limit)
             default:  // agent_message/user_message duplicate response_items
                 return entry(.meta(rawType: payload["type"] as? String ?? type))

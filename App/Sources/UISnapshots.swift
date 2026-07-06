@@ -81,7 +81,10 @@ enum UISnapshots {
                        turnStartedAt: now.addingTimeInterval(-startedMinutesAgo * 60),
                        lastGrowthAt: now.addingTimeInterval(-30), isUnreadable: unreadable,
                        pid: 123, cwd: nil,
-                       cost: SessionCost(dollars: dollars),
+                       // Tokens derived from dollars (~$25/M blended) so the
+                       // rows exercise the price+tokens trailing block.
+                       cost: SessionCost(dollars: dollars,
+                                         totalTokens: Int(dollars * 40_000)),
                        entrypoint: entrypoint, agentID: agent.0, agentName: agent.1,
                        title: title)
         }

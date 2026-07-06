@@ -81,7 +81,8 @@ public enum PaceAlertPlanner {
     }
 
     /// Early-window pace looks alarming after any burst, so a projection only
-    /// counts once real usage has accumulated…
+    /// counts once real usage has accumulated (the user can tune both floors
+    /// in Preferences — these are the defaults)…
     public static let minimumUsedPercent = 30.0
     /// …and only when it lands meaningfully before the reset.
     public static let minimumShortfall: TimeInterval = 10 * 60
@@ -91,9 +92,12 @@ public enum PaceAlertPlanner {
     public static let maximumStaleness: TimeInterval = 60 * 60
 
     /// One warning per agent per window (5h and weekly independently),
-    /// deduped by reset time exactly like UsageAlertPlanner.
+    /// deduped by reset time exactly like UsageAlertPlanner. The floors are
+    /// the user's "show pace from N%" preferences.
     public static func plan(limits: [String: UsageLimitSnapshot],
                             threshold: Double,
+                            minimumFiveHourPercent: Double = minimumUsedPercent,
+                            minimumWeeklyPercent: Double = minimumUsedPercent,
                             alertedFiveHour: [String: Date],
                             alertedWeekly: [String: Date],
                             now: Date = Date()) -> Outcome {
@@ -103,28 +107,21 @@ public enum PaceAlertPlanner {
 
         for (agentID, limit) in limits.sorted(by: { $0.key < $1.key }) {
             if let alert = evaluate(agentID: agentID, snapshot: limit,
-                                    isWeekly: false, threshold: threshold, now: now),
+                                    isWeekly: false, threshold: threshold,
+                                    minimumUsed: minimumFiveHourPercent, now: now),
                fiveHour[agentID] != alert.resetsAt {
                 fiveHour[agentID] = alert.resetsAt
                 alerts.append(alert)
             }
             // The weekly fields ride on the same snapshot; the pace math is
-            // window-agnostic, so lift them into a snapshot of their own.
-            if let weeklyUsed = limit.weeklyUsedPercent,
-               let weeklyResets = limit.weeklyResetsAt {
-                let synthetic = UsageLimitSnapshot(usedPercent: weeklyUsed,
-                                                   windowMinutes: 7 * 24 * 60,
-                                                   resetsAt: weeklyResets,
-                                                   capturedAt: limit.capturedAt,
-                                                   plan: nil, isLive: limit.isLive,
-                                                   weeklyUsedPercent: nil,
-                                                   weeklyResetsAt: nil)
-                if let alert = evaluate(agentID: agentID, snapshot: synthetic,
-                                        isWeekly: true, threshold: threshold, now: now),
-                   weekly[agentID] != alert.resetsAt {
-                    weekly[agentID] = alert.resetsAt
-                    alerts.append(alert)
-                }
+            // window-agnostic, so lift them into a window of their own.
+            if let weeklyView = limit.weeklyWindow,
+               let alert = evaluate(agentID: agentID, snapshot: weeklyView,
+                                    isWeekly: true, threshold: threshold,
+                                    minimumUsed: minimumWeeklyPercent, now: now),
+               weekly[agentID] != alert.resetsAt {
+                weekly[agentID] = alert.resetsAt
+                alerts.append(alert)
             }
         }
         return Outcome(alerts: alerts, alertedFiveHour: fiveHour, alertedWeekly: weekly)
@@ -137,14 +134,14 @@ public enum PaceAlertPlanner {
     /// the menu) sees, so the handoff at `threshold` has no seam.
     private static func evaluate(agentID: String, snapshot: UsageLimitSnapshot,
                                  isWeekly: Bool, threshold: Double,
-                                 now: Date) -> Alert? {
+                                 minimumUsed: Double, now: Date) -> Alert? {
         guard let used = snapshot.usedPercent,
               let resets = snapshot.resetsAt,
               now.timeIntervalSince(snapshot.capturedAt) <= maximumStaleness,
               let exhaustion = UsageForecast.projectedExhaustion(snapshot, now: now),
               resets.timeIntervalSince(exhaustion) >= minimumShortfall else { return nil }
         let current = UsageForecast.estimatedCurrentPercent(snapshot, now: now) ?? used
-        guard current >= minimumUsedPercent, current < threshold else { return nil }
+        guard current >= minimumUsed, current < threshold else { return nil }
         return Alert(agentID: agentID, isWeekly: isWeekly, usedPercent: current,
                      exhaustionAt: exhaustion, resetsAt: resets)
     }

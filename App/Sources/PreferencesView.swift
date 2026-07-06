@@ -201,6 +201,31 @@ struct PreferencesView: View {
                     Text("Predicts the pace early: one heads-up with the time the limit would hit — before the wall, not after.")
                 }
                 .hapticTick(on: model.notifyPace)
+                // These floors also gate the "on pace to hit the limit"
+                // lines in the menu, so they stay visible even when the
+                // notification toggle above is off.
+                HStack {
+                    Slider(value: $model.paceFiveHourFloor, in: 0...90, step: 5) {
+                        Text("5-hour pace from")
+                    }
+                    .hapticTick(on: model.paceFiveHourFloor)
+                    Text(model.paceFiveHourFloor == 0 ? "always"
+                         : "\(Int(model.paceFiveHourFloor))%")
+                        .monospacedDigit()
+                        .frame(width: 52, alignment: .trailing)
+                }
+                .help("Show the 5-hour pace line (and allow its alert) once the window is this full. Lower = earlier but noisier predictions; 0% shows it whenever a projection exists.")
+                HStack {
+                    Slider(value: $model.paceWeeklyFloor, in: 0...90, step: 5) {
+                        Text("Weekly pace from")
+                    }
+                    .hapticTick(on: model.paceWeeklyFloor)
+                    Text(model.paceWeeklyFloor == 0 ? "always"
+                         : "\(Int(model.paceWeeklyFloor))%")
+                        .monospacedDigit()
+                        .frame(width: 52, alignment: .trailing)
+                }
+                .help("Show the weekly pace line (and allow its alert) once the weekly window is this full.")
                 Toggle(isOn: $model.weeklyDigestEnabled) {
                     Text("📊 Weekly summary")
                     Text("One Sunday-evening note: the week's estimated cost, session count, and busiest project.")
