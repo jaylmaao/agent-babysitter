@@ -8,6 +8,7 @@ struct DayStat: Equatable, Identifiable {
     let dollars: Double
     let byAgent: [String: Double]
     var byProject: [String: Double] = [:]
+    var byModel: [String: Double] = [:]
     let activeMinutes: Double
     let sessions: Int
     var id: Date { day }
@@ -28,6 +29,7 @@ struct StatsView: View {
     enum StatsRange: String, CaseIterable, Identifiable {
         case today = "Today"
         case week = "Week"
+        case month = "Month"
         case threeMonths = "3 months"
         case allTime = "All time"
         var id: String { rawValue }
@@ -36,6 +38,7 @@ struct StatsView: View {
             switch self {
             case .today: 1
             case .week: 7
+            case .month: nil     // calendar month-to-date, not a fixed count
             case .threeMonths: 91
             case .allTime: nil
             }
@@ -44,7 +47,7 @@ struct StatsView: View {
         /// Chart bucket that keeps the bar count readable.
         var unit: Calendar.Component {
             switch self {
-            case .today, .week: .day
+            case .today, .week, .month: .day
             case .threeMonths: .weekOfYear
             case .allTime: .month
             }
@@ -69,7 +72,7 @@ struct StatsView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 300)
+                .frame(width: 340)
             }
 
             HStack(alignment: .top, spacing: 16) {
@@ -77,6 +80,14 @@ struct StatsView: View {
                 stat(value: "\(selectedDays.reduce(0) { $0 + $1.sessions })",
                      label: "sessions\nwatched")
                 stat(value: totalCost, label: "estimated usage\nvalue (API prices)")
+            }
+
+            if range == .month,
+               let estimate = CostProjection.monthEstimate(
+                   spentSoFar: selectedDays.reduce(0) { $0 + $1.dollars }, now: Date()) {
+                Text("At this pace: \(model.money(estimate)) by month's end.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             // Even one bucket draws (a single bar beats a missing graph);
@@ -120,6 +131,20 @@ struct StatsView: View {
                     }
                 }
             }
+            if !costByModel.isEmpty {
+                Divider()
+                Text("By model")
+                    .font(.caption).fontWeight(.semibold).foregroundStyle(.secondary)
+                ForEach(costByModel.sorted { $0.value > $1.value }.prefix(8), id: \.key) { modelID, dollars in
+                    HStack {
+                        Text(ModelNames.pretty(modelID)).font(.callout).lineLimit(1)
+                        Spacer()
+                        Text(model.money(dollars))
+                            .font(.callout.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
             let tokens = model.todayCost
             if tokens.inputTokens + tokens.outputTokens + tokens.cacheReadTokens
                 + tokens.cacheWriteTokens > 0 {
@@ -148,6 +173,11 @@ struct StatsView: View {
     // MARK: - Range slicing and bucketing
 
     private var selectedDays: [DayStat] {
+        if range == .month {
+            // The calendar month so far — what a monthly bill would cover.
+            let start = Calendar.current.dateInterval(of: .month, for: Date())?.start ?? Date()
+            return model.statsDays.filter { $0.day >= start }
+        }
         guard let dayCount = range.days else { return model.statsDays }
         let cutoff = Calendar.current.startOfDay(
             for: Date().addingTimeInterval(-Double(dayCount - 1) * 86_400))
@@ -180,6 +210,7 @@ struct StatsView: View {
         switch range {
         case .today: "Today"
         case .week: "This week"
+        case .month: "This month"
         case .threeMonths: "Past 3 months"
         case .allTime: "All time"
         }
@@ -212,6 +243,12 @@ struct StatsView: View {
         }
     }
 
+    private var costByModel: [String: Double] {
+        selectedDays.reduce(into: [:]) { totals, day in
+            for (modelID, dollars) in day.byModel { totals[modelID, default: 0] += dollars }
+        }
+    }
+
     // MARK: - Pieces
 
     private func bucketChart(title: String, color: Color,
@@ -233,6 +270,11 @@ struct StatsView: View {
                 case .today, .week:
                     AxisMarks(values: .stride(by: .day)) {
                         AxisValueLabel(format: .dateTime.weekday(.narrow), centered: true)
+                    }
+                case .month:
+                    AxisMarks(values: thinnedBucketStarts) {
+                        AxisValueLabel(format: .dateTime.day())
+                        AxisGridLine()
                     }
                 case .threeMonths:
                     AxisMarks(values: thinnedBucketStarts) {

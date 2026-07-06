@@ -626,6 +626,16 @@ struct SessionRowView: View {
                 Text(row.projectName)
                     .fontWeight(.medium)
                     .lineLimit(1)
+                // What it's working on: the user's last real prompt. Skipped
+                // when it would just repeat the row label (Cursor composers
+                // already surface their name as projectName).
+                if let title = row.title, title != row.projectName {
+                    Text("“\(title)”")
+                        .font(.caption)
+                        .italic()
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
                 HStack(spacing: 4) {
                     Text(row.state.label)
                     if row.isDesktopApp {
@@ -656,6 +666,7 @@ struct SessionRowView: View {
         .help("Click to jump to this session")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(row.projectName), \(row.state.label)"
+            + (row.title.map { $0 == row.projectName ? "" : ", working on \($0)" } ?? "")
             + (row.cost.dollars > 0 ? ", about \(Int(row.cost.dollars)) dollars" : ""))
         .accessibilityHint("Jumps to this session")
         .contextMenu {

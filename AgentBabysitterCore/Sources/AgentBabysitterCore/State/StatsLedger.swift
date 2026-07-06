@@ -8,17 +8,20 @@ public enum StatsLedger {
     public struct Ledger: Equatable {
         public var costByAgent: [String: [String: Double]]
         public var costByProject: [String: [String: Double]]
+        public var costByModel: [String: [String: Double]]
         public var sessionCounts: [String: Int]
         public var todaySessionIDs: Set<String>
         public var activeMinutes: [String: Double]
 
         public init(costByAgent: [String: [String: Double]] = [:],
                     costByProject: [String: [String: Double]] = [:],
+                    costByModel: [String: [String: Double]] = [:],
                     sessionCounts: [String: Int] = [:],
                     todaySessionIDs: Set<String> = [],
                     activeMinutes: [String: Double] = [:]) {
             self.costByAgent = costByAgent
             self.costByProject = costByProject
+            self.costByModel = costByModel
             self.sessionCounts = sessionCounts
             self.todaySessionIDs = todaySessionIDs
             self.activeMinutes = activeMinutes
@@ -43,6 +46,7 @@ public enum StatsLedger {
         for ledger in ledgers {
             addNested(&out.costByAgent, ledger.costByAgent)
             addNested(&out.costByProject, ledger.costByProject)
+            addNested(&out.costByModel, ledger.costByModel)
             for (day, n) in ledger.sessionCounts { out.sessionCounts[day, default: 0] += n }
             for (day, m) in ledger.activeMinutes { out.activeMinutes[day, default: 0] += m }
         }
@@ -70,6 +74,7 @@ public enum StatsLedger {
         }
         return Ledger(costByAgent: mergeNested(a.costByAgent, b.costByAgent),
                       costByProject: mergeNested(a.costByProject, b.costByProject),
+                      costByModel: mergeNested(a.costByModel, b.costByModel),
                       sessionCounts: mergeMax(a.sessionCounts, b.sessionCounts),
                       todaySessionIDs: a.todaySessionIDs.union(b.todaySessionIDs),
                       activeMinutes: mergeMax(a.activeMinutes, b.activeMinutes))
@@ -81,6 +86,7 @@ public enum StatsLedger {
     public static func ticked(_ ledger: Ledger, todayKey: String,
                               todayCostByAgent: [String: Double],
                               todayCostByProject: [String: Double] = [:],
+                              todayCostByModel: [String: Double] = [:],
                               visibleSessionIDs: some Sequence<String>,
                               anyWorking: Bool,
                               secondsSinceLastTick: TimeInterval) -> Ledger {
@@ -96,6 +102,12 @@ public enum StatsLedger {
             todayProjects[project] = max(todayProjects[project] ?? 0, dollars)
         }
         ledger.costByProject[todayKey] = todayProjects
+
+        var todayModels = ledger.costByModel[todayKey] ?? [:]
+        for (model, dollars) in todayCostByModel {
+            todayModels[model] = max(todayModels[model] ?? 0, dollars)
+        }
+        ledger.costByModel[todayKey] = todayModels
 
         ledger.todaySessionIDs.formUnion(visibleSessionIDs)
         ledger.sessionCounts[todayKey] = ledger.todaySessionIDs.count

@@ -157,6 +157,19 @@ struct PreferencesView: View {
                     Text("A question or a permission prompt is waiting for you.")
                 }
                 .hapticTick(on: model.notifyWaiting)
+                Toggle(isOn: $model.waitingReminderEnabled) {
+                    Text("Remind me if it's still waiting")
+                    Text("One follow-up per question if you haven't acted after the time below — so a blocked agent never sits unnoticed.")
+                }
+                .hapticTick(on: model.waitingReminderEnabled)
+                if model.waitingReminderEnabled {
+                    Picker("Remind after", selection: $model.waitingReminderMinutes) {
+                        Text("5 minutes").tag(5.0)
+                        Text("10 minutes").tag(10.0)
+                        Text("15 minutes").tag(15.0)
+                        Text("30 minutes").tag(30.0)
+                    }
+                }
                 Toggle(isOn: $model.notifyDone) {
                     Text("🔵 An agent finishes")
                     Text("Its reply is ready to read.")
@@ -183,6 +196,11 @@ struct PreferencesView: View {
                             .frame(width: 44, alignment: .trailing)
                     }
                 }
+                Toggle(isOn: $model.weeklyDigestEnabled) {
+                    Text("📊 Weekly summary")
+                    Text("One Sunday-evening note: the week's estimated cost, session count, and busiest project.")
+                }
+                .hapticTick(on: model.weeklyDigestEnabled)
                 LabeledContent {
                     BudgetField(symbol: model.currency.symbol, initial: model.dailyBudget) {
                         model.dailyBudget = $0

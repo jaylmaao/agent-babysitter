@@ -21,8 +21,18 @@ public protocol SessionReading: AnyObject {
     var dailyCosts: [Date: SessionCost] { get }
     /// Latest subscription rate-limit reading seen in this transcript.
     var usageLimit: UsageLimitSnapshot? { get }
+    /// One-line caption of the user's last real prompt — "what this session
+    /// is working on". Nil when the format doesn't expose prompts.
+    var lastPromptTitle: String? { get }
+    /// Dollars per model per local day (empty when unattributable).
+    var dailyDollarsByModel: [Date: [String: Double]] { get }
     /// Pick up whatever changed on disk since the last call.
     func refresh() throws
+}
+
+public extension SessionReading {
+    var lastPromptTitle: String? { nil }
+    var dailyDollarsByModel: [Date: [String: Double]] { [:] }
 }
 
 extension TranscriptFileTailer: SessionReading {
@@ -32,6 +42,8 @@ extension TranscriptFileTailer: SessionReading {
     public var cost: SessionCost { costAccumulator.cost }
     public var dailyCosts: [Date: SessionCost] { costAccumulator.dailyCosts }
     public var usageLimit: UsageLimitSnapshot? { lastUsageLimit }
+    public var lastPromptTitle: String? { reducer.lastUserPrompt }
+    public var dailyDollarsByModel: [Date: [String: Double]] { costAccumulator.dailyDollarsByModel }
 
     public func refresh() throws {
         _ = try catchUp()

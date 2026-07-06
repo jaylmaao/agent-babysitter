@@ -156,6 +156,9 @@ public struct TranscriptEntry: Equatable, Sendable {
     public let sessionID: String?
     public let cwd: String?
     public let isSidechain: Bool
+    /// The line is bookkeeping the agent wrote in the user's voice (Claude
+    /// Code `isMeta: true` — hook notices, caveats). Not a real prompt.
+    public let isMeta: Bool
     /// What launched the session: "claude-desktop" (desktop app),
     /// "sdk-cli" (CLI/SDK), … — drives focus-on-click and the row badge.
     public let entrypoint: String?
@@ -163,7 +166,8 @@ public struct TranscriptEntry: Equatable, Sendable {
     public let usageLimit: UsageLimitSnapshot?
 
     public init(kind: Kind, uuid: String?, timestamp: Date?, sessionID: String?,
-                cwd: String?, isSidechain: Bool, entrypoint: String? = nil,
+                cwd: String?, isSidechain: Bool, isMeta: Bool = false,
+                entrypoint: String? = nil,
                 usageLimit: UsageLimitSnapshot? = nil) {
         self.kind = kind
         self.uuid = uuid
@@ -171,6 +175,7 @@ public struct TranscriptEntry: Equatable, Sendable {
         self.sessionID = sessionID
         self.cwd = cwd
         self.isSidechain = isSidechain
+        self.isMeta = isMeta
         self.entrypoint = entrypoint
         self.usageLimit = usageLimit
     }

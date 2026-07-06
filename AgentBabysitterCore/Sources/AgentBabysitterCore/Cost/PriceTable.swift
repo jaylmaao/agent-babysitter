@@ -109,6 +109,10 @@ public struct CostAccumulator: Sendable {
     /// mtime is today (a session spanning midnight would otherwise
     /// double-attribute).
     public private(set) var dailyCosts: [Date: SessionCost] = [:]
+    /// Dollars per model per local day — the "where does the spend go"
+    /// split (Opus vs Sonnet vs Haiku). Only priced models appear; unknown
+    /// ones already surface as "pricing unknown".
+    public private(set) var dailyDollarsByModel: [Date: [String: Double]] = [:]
 
     private let table: PriceTable
     /// nil = follow the live local timezone per entry (never frozen); tests
@@ -147,6 +151,9 @@ public struct CostAccumulator: Sendable {
         var daily = dailyCosts[day] ?? SessionCost()
         daily.add(usage: usage, dollars: dollars, unknownModel: unknownModel)
         dailyCosts[day] = daily
+        if dollars > 0, let model = payload.model {
+            dailyDollarsByModel[day, default: [:]][model, default: 0] += dollars
+        }
     }
 }
 

@@ -62,6 +62,23 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    /// "Still waiting (10 min): fix the login bug" — the opt-in follow-up for
+    /// a waiting session the user missed. Same identifier as the session's
+    /// state banner so it replaces the original 🟡 instead of stacking, and
+    /// keeps the same jump/snooze actions.
+    func deliverWaitingReminder(row: SessionRow, minutes: Int) {
+        requestAuthorizationIfNeeded()
+        let content = UNMutableNotificationContent()
+        content.body = row.title
+            .map { "Still waiting for you (\(minutes) min): “\($0)” — \(row.projectName)." }
+            ?? "Still waiting for you (\(minutes) min): session \(row.projectName)."
+        content.userInfo = ["sessionID": row.id]
+        content.sound = .default
+        content.categoryIdentifier = "session-event"
+        center.add(UNNotificationRequest(identifier: "session-\(row.id)",
+                                         content: content, trigger: nil))
+    }
+
     /// "Claude Code is at 82% of its 5-hour limit." One identifier per agent
     /// per window kind so re-alerts replace rather than stack. The label
     /// follows the window length (Cursor is monthly, Manus daily).
@@ -104,6 +121,26 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         content.categoryIdentifier = "update"
         content.sound = .default
         center.add(UNNotificationRequest(identifier: "update-available",
+                                         content: content, trigger: nil))
+    }
+
+    /// "Your week with AI agents: ~$142 across 38 sessions…" Sunday evening,
+    /// once per week (AppModel gates the cadence).
+    func deliverWeeklyDigest(dollars: Double, sessions: Int, busiestProject: String?,
+                             planValue: Bool, money: (Double) -> String) {
+        requestAuthorizationIfNeeded()
+        let content = UNMutableNotificationContent()
+        content.title = "Your week with AI agents"
+        var body = sessions == 0 && dollars == 0
+            ? "A quiet week — no agent sessions."
+            : "\(money(dollars))\(planValue ? " of plan value" : "") across "
+              + "\(sessions) session\(sessions == 1 ? "" : "s")."
+        if let busiestProject {
+            body += " Busiest: \(busiestProject)."
+        }
+        content.body = body
+        content.sound = .default
+        center.add(UNNotificationRequest(identifier: "weekly-digest",
                                          content: content, trigger: nil))
     }
 

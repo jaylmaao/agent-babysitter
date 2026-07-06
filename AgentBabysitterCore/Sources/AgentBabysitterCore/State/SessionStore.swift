@@ -24,6 +24,9 @@ public struct SessionRow: Equatable, Sendable, Identifiable {
     /// the pending question for waiting rows, the reply's first line for
     /// done rows. Nil without hooks.
     public var hookDetail: HookSignal?
+    /// "What it's working on": the user's last real prompt, one line.
+    /// Nil for agents whose storage doesn't expose prompts.
+    public var title: String?
 
     /// Session hosted by a desktop app rather than a terminal.
     public var isDesktopApp: Bool {
@@ -42,7 +45,7 @@ public struct SessionRow: Equatable, Sendable, Identifiable {
                 entrypoint: String? = nil,
                 agentID: String = "claude-code", agentName: String = "Claude Code",
                 transcriptURL: URL? = nil, isActivityBased: Bool = false,
-                hookDetail: HookSignal? = nil) {
+                hookDetail: HookSignal? = nil, title: String? = nil) {
         self.id = id
         self.projectName = projectName
         self.state = state
@@ -58,6 +61,7 @@ public struct SessionRow: Equatable, Sendable, Identifiable {
         self.transcriptURL = transcriptURL
         self.isActivityBased = isActivityBased
         self.hookDetail = hookDetail
+        self.title = title
     }
 }
 
@@ -261,7 +265,8 @@ public actor SessionStore {
                 agentName: tracked.adapter.displayName,
                 transcriptURL: tracked.reader.url,
                 isActivityBased: tracked.adapter.isActivityBased,
-                hookDetail: tracked.latestHookSignal))
+                hookDetail: tracked.latestHookSignal,
+                title: tracked.reader.lastPromptTitle))
         }
         let priority: [SessionState: Int] = [.waitingForInput: 0, .stalled: 1, .working: 2,
                                              .done: 3, .ended: 4]
@@ -322,6 +327,19 @@ public actor SessionStore {
             let project = tracked.reader.lastKnownCWD
                 .map { URL(fileURLWithPath: $0).lastPathComponent } ?? tracked.projectDirName
             totals[project, default: 0] += daily.dollars
+        }
+        return totals
+    }
+
+    /// Today's dollars per model across all sessions (priced models only).
+    public func todayCostByModel(at now: Date = Date(),
+                                 timeZone: TimeZone = .current) -> [String: Double] {
+        let midnight = LocalDay.start(of: now, timeZone: timeZone)
+        var totals: [String: Double] = [:]
+        for (_, tracked) in sessions {
+            for (model, dollars) in tracked.reader.dailyDollarsByModel[midnight] ?? [:] {
+                totals[model, default: 0] += dollars
+            }
         }
         return totals
     }

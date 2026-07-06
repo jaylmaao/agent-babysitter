@@ -21,6 +21,9 @@ public struct TranscriptReducer: Equatable, Sendable {
     /// Timestamp of the prompt that started the current (or just-finished)
     /// turn — the UI shows elapsed time from here.
     public private(set) var currentTurnStartedAt: Date?
+    /// One-line caption of the user's last REAL prompt (protocol noise
+    /// filtered by SessionTitle) — "what this session is working on".
+    public private(set) var lastUserPrompt: String?
 
     public init() {}
 
@@ -43,6 +46,10 @@ public struct TranscriptReducer: Equatable, Sendable {
                 } else {
                     turnPhase = .midTurn
                     currentTurnStartedAt = entry.timestamp
+                    if let title = SessionTitle.candidate(fromPromptText: text,
+                                                          isMeta: entry.isMeta) {
+                        lastUserPrompt = title
+                    }
                 }
             }
 

@@ -146,6 +146,17 @@ final class AppModel: ObservableObject {
     @Published var notifyDone: Bool {
         didSet { UserDefaults.standard.set(notifyDone, forKey: "notifyDone") }
     }
+    /// Sunday-evening week summary notification.
+    @Published var weeklyDigestEnabled: Bool {
+        didSet { UserDefaults.standard.set(weeklyDigestEnabled, forKey: "weeklyDigestEnabled") }
+    }
+    /// One automatic follow-up per waiting episode, after the minutes below.
+    @Published var waitingReminderEnabled: Bool {
+        didSet { UserDefaults.standard.set(waitingReminderEnabled, forKey: "waitingReminderEnabled") }
+    }
+    @Published var waitingReminderMinutes: Double {
+        didSet { UserDefaults.standard.set(waitingReminderMinutes, forKey: "waitingReminderMinutes") }
+    }
     @Published var notifyStalled: Bool {
         didSet { UserDefaults.standard.set(notifyStalled, forKey: "notifyStalled") }
     }
@@ -220,6 +231,10 @@ final class AppModel: ObservableObject {
     private var refreshTimer: Timer?
     private var onboardingPollTimer: Timer?
     private var notificationPlanner = NotificationPlanner()
+    private var waitingReminderPlanner = WaitingReminderPlanner()
+    /// What the stats window currently shows — the weekly digest reads this
+    /// so it matches the numbers the user sees (household sum when sync on).
+    private var latestDisplayLedger: StatsLedger.Ledger?
     private let notificationManager = NotificationManager()
     private let liveUsageService = LiveUsageService()
     private let hotKeyManager = HotKeyManager()
@@ -267,6 +282,8 @@ final class AppModel: ObservableObject {
                                      "costsArePlanValue": true,
                                      "quietStartHour": 22,
                                      "quietEndHour": 8,
+                                     "weeklyDigestEnabled": true,
+                                     "waitingReminderMinutes": 10.0,
                                      "doneAutoHideMinutes": 10.0])
         let root = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude/projects")
@@ -293,6 +310,9 @@ final class AppModel: ObservableObject {
         notifyWaiting = defaults.bool(forKey: "notifyWaiting")
         notifyDone = defaults.bool(forKey: "notifyDone")
         notifyStalled = defaults.bool(forKey: "notifyStalled")
+        waitingReminderEnabled = defaults.bool(forKey: "waitingReminderEnabled")
+        waitingReminderMinutes = defaults.double(forKey: "waitingReminderMinutes")
+        weeklyDigestEnabled = defaults.bool(forKey: "weeklyDigestEnabled")
         notifyLimit = defaults.bool(forKey: "notifyLimit")
         limitAlertThreshold = defaults.double(forKey: "limitAlertThreshold")
         dailyBudget = defaults.double(forKey: "dailyBudget")
@@ -701,6 +721,7 @@ final class AppModel: ObservableObject {
         guard !isQuietNow else { return }
         deliverLimitAlerts(usageLimits)
         deliverBudgetAlerts(todayCost.dollars)
+        deliverWeeklyDigestIfDue()
         for agent in unreadableAgents where notifiedUnreadable.insert(agent.id).inserted {
             notificationManager.deliverCannotRead(agentName: agent.name, agentID: agent.id)
         }
@@ -719,6 +740,20 @@ final class AppModel: ObservableObject {
                                     muted: notificationsMuted,
                                     enabledKinds: enabledKinds,
                                     stallThresholdMinutes: Int(stallThresholdMinutes))
+
+        // Opt-in follow-up for waiting sessions the user missed. While muted
+        // (or in quiet hours, which returns above) the planner is paused; a
+        // session still waiting past the interval when banners resume
+        // reminds right away — you asked to be caught up.
+        if waitingReminderEnabled, !notificationsMuted {
+            let due = waitingReminderPlanner.dueReminders(
+                rows: rows, interval: waitingReminderMinutes * 60)
+            for id in due {
+                guard let row = rows.first(where: { $0.id == id }) else { continue }
+                notificationManager.deliverWaitingReminder(
+                    row: row, minutes: Int(waitingReminderMinutes))
+            }
+        }
     }
 
     /// Per-day per-agent dollars, session counts, and active minutes — the
@@ -742,6 +777,7 @@ final class AppModel: ObservableObject {
 
         var byAgent = defaults.dictionary(forKey: "costByAgent") as? [String: [String: Double]] ?? [:]
         var byProject = defaults.dictionary(forKey: "costByProject") as? [String: [String: Double]] ?? [:]
+        let byModel = defaults.dictionary(forKey: "costByModel") as? [String: [String: Double]] ?? [:]
         var counts = defaults.dictionary(forKey: "sessionCounts") as? [String: Int] ?? [:]
         if let legacy = defaults.dictionary(forKey: "sessionsSeen") as? [String: [String]] {
             for (day, ids) in legacy where counts[day] == nil { counts[day] = ids.count }
@@ -753,12 +789,14 @@ final class AppModel: ObservableObject {
         // This machine's own ledger — always persisted locally as-is (never
         // overwritten with cross-machine data).
         let ledger = StatsLedger.ticked(
-            .init(costByAgent: byAgent, costByProject: byProject, sessionCounts: counts,
+            .init(costByAgent: byAgent, costByProject: byProject, costByModel: byModel,
+                  sessionCounts: counts,
                   todaySessionIDs: Set(todaySeen[today] ?? []),
                   activeMinutes: activeMinutes),
             todayKey: today,
             todayCostByAgent: await store.todayCostByAgent(),
             todayCostByProject: await store.todayCostByProject(),
+            todayCostByModel: await store.todayCostByModel(),
             visibleSessionIDs: rows.map(\.id),
             anyWorking: anyWorking,
             secondsSinceLastTick: sinceCredit)
@@ -777,6 +815,9 @@ final class AppModel: ObservableObject {
         if ledger.costByProject != byProject {
             defaults.set(ledger.costByProject, forKey: "costByProject")
         }
+        if ledger.costByModel != byModel {
+            defaults.set(ledger.costByModel, forKey: "costByModel")
+        }
         if ledger.sessionCounts != counts {
             defaults.set(ledger.sessionCounts, forKey: "sessionCounts")
         }
@@ -788,8 +829,10 @@ final class AppModel: ObservableObject {
         }
         // The stats window reflects the DISPLAY ledger (this Mac, or the
         // cross-machine sum when sync is on) — not necessarily what's on disk.
+        latestDisplayLedger = displayLedger
         let showAgent = displayLedger.costByAgent
         let showProject = displayLedger.costByProject
+        let showModel = displayLedger.costByModel
         let showCounts = displayLedger.sessionCounts
         let showMinutes = displayLedger.activeMinutes
 
@@ -802,9 +845,31 @@ final class AppModel: ObservableObject {
             return DayStat(day: entry.day, dollars: dayDollars,
                            byAgent: showAgent[key] ?? [:],
                            byProject: showProject[key] ?? [:],
+                           byModel: showModel[key] ?? [:],
                            activeMinutes: showMinutes[key] ?? 0,
                            sessions: showCounts[key] ?? 0)
         }
+    }
+
+    /// Sunday from 6 PM local, once per ISO week: the week's cost, session
+    /// count, and busiest project — from the same ledger the stats window
+    /// shows. Quiet hours hold it (caller returns before us); the key is
+    /// only recorded on delivery, so a held digest fires later that evening.
+    private func deliverWeeklyDigestIfDue() {
+        guard weeklyDigestEnabled, !notificationsMuted,
+              let ledger = latestDisplayLedger else { return }
+        let defaults = UserDefaults.standard
+        guard WeeklyDigest.isDue(now: Date(),
+                                 lastFired: defaults.string(forKey: "weeklyDigestFired"))
+        else { return }
+        let digest = WeeklyDigest.compute(ledger: ledger)
+        defaults.set(WeeklyDigest.weekKey(for: Date()), forKey: "weeklyDigestFired")
+        notificationManager.deliverWeeklyDigest(
+            dollars: digest.dollars, sessions: digest.sessions,
+            busiestProject: digest.busiestProject,
+            planValue: costsArePlanValue, money: { [weak self] in
+                self?.money($0) ?? String(format: "$%.2f", $0)
+            })
     }
 
     /// Fold today's running total into the persisted 7-day history. Max
@@ -865,7 +930,8 @@ final class AppModel: ObservableObject {
                 project: row.projectName, cwd: row.cwd,
                 startedAt: row.turnStartedAt, endedAt: Date(),
                 dollars: row.cost.dollars, totalTokens: row.cost.totalTokens,
-                transcriptPath: row.transcriptURL?.path)
+                transcriptPath: row.transcriptURL?.path,
+                title: row.title)
             history = SessionHistoryLedger.record(entry, into: history)
         }
         guard history != sessionHistory else { return }

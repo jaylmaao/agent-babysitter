@@ -57,6 +57,11 @@ struct HistoryView: View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.project).fontWeight(.medium).lineLimit(1)
+                if let title = entry.title, title != entry.project {
+                    Text("“\(title)”")
+                        .font(.caption).italic()
+                        .foregroundStyle(.secondary).lineLimit(1)
+                }
                 Text("\(entry.agentName) · \(Self.timeLabel(entry.endedAt))")
                     .font(.caption).foregroundStyle(.secondary)
             }

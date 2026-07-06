@@ -75,13 +75,15 @@ enum UISnapshots {
         func row(_ id: String, _ project: String, _ state: SessionState,
                  agent: (String, String) = ("claude-code", "Claude Code"),
                  entrypoint: String? = nil, dollars: Double = 0,
-                 startedMinutesAgo: Double = 6, unreadable: Bool = false) -> SessionRow {
+                 startedMinutesAgo: Double = 6, unreadable: Bool = false,
+                 title: String? = nil) -> SessionRow {
             SessionRow(id: id, projectName: project, state: state,
                        turnStartedAt: now.addingTimeInterval(-startedMinutesAgo * 60),
                        lastGrowthAt: now.addingTimeInterval(-30), isUnreadable: unreadable,
                        pid: 123, cwd: nil,
                        cost: SessionCost(dollars: dollars),
-                       entrypoint: entrypoint, agentID: agent.0, agentName: agent.1)
+                       entrypoint: entrypoint, agentID: agent.0, agentName: agent.1,
+                       title: title)
         }
 
         func limit(_ used: Double?, plan: String?, resetsInMinutes: Double = 135,
@@ -104,7 +106,8 @@ enum UISnapshots {
 
         menu("menu-normal") { model in
             model.applyFixture(
-                rows: [row("a", "checkout-service", .working, dollars: 12.38),
+                rows: [row("a", "checkout-service", .working, dollars: 12.38,
+                           title: "add rate limiting to the checkout API"),
                        row("b", "AgentBabysitter", .waitingForInput,
                            entrypoint: "claude-desktop", dollars: 4.02),
                        row("c", "rollout-parser", .done,
@@ -209,6 +212,9 @@ enum UISnapshots {
                            byProject: ["agent-babysitter": wave * 0.9,
                                        "checkout-service": wave * 0.5,
                                        "neon-county": wave * 0.2],
+                           byModel: ["claude-opus-4-8": wave * 1.0,
+                                     "claude-haiku-4-5-20251001": wave * 0.1,
+                                     "claude-sonnet-5": wave * 0.5],
                            activeMinutes: wave * 3.2,
                            sessions: Int(wave / 12))
         }.reversed()
@@ -227,6 +233,7 @@ enum UISnapshots {
         }
         stats("stats-today", .today)
         stats("stats-week", .week)
+        stats("stats-month", .month)
         stats("stats-3months", .threeMonths)
         stats("stats-alltime", .allTime)
 

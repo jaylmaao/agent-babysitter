@@ -14,10 +14,14 @@ public struct SessionHistoryEntry: Equatable, Sendable, Codable, Identifiable {
     public let dollars: Double
     public let totalTokens: Int
     public let transcriptPath: String?
+    /// The user's last prompt ("what it was working on"). Optional so
+    /// history files written before this field decode unchanged.
+    public var title: String?
 
     public init(id: String, sessionID: String, agentID: String, agentName: String,
                 project: String, cwd: String?, startedAt: Date?, endedAt: Date,
-                dollars: Double, totalTokens: Int, transcriptPath: String?) {
+                dollars: Double, totalTokens: Int, transcriptPath: String?,
+                title: String? = nil) {
         self.id = id
         self.sessionID = sessionID
         self.agentID = agentID
@@ -29,6 +33,7 @@ public struct SessionHistoryEntry: Equatable, Sendable, Codable, Identifiable {
         self.dollars = dollars
         self.totalTokens = totalTokens
         self.transcriptPath = transcriptPath
+        self.title = title
     }
 }
 

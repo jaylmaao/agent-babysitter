@@ -46,6 +46,7 @@ public enum TranscriptLineParser {
             sessionID: object["sessionId"] as? String,
             cwd: object["cwd"] as? String,
             isSidechain: object["isSidechain"] as? Bool ?? false,
+            isMeta: object["isMeta"] as? Bool ?? false,
             entrypoint: object["entrypoint"] as? String
         )
     }

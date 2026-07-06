@@ -44,6 +44,8 @@ enum StatsSync {
     private struct Wire: Codable {
         var costByAgent: [String: [String: Double]]
         var costByProject: [String: [String: Double]]
+        /// Optional: files written by pre-0.8.0 builds don't carry it.
+        var costByModel: [String: [String: Double]]?
         var sessionCounts: [String: Int]
         var activeMinutes: [String: Double]
     }
@@ -53,6 +55,7 @@ enum StatsSync {
     static func writeIfChanged(_ ownLedger: StatsLedger.Ledger) {
         guard let folder else { return }
         let wire = Wire(costByAgent: ownLedger.costByAgent, costByProject: ownLedger.costByProject,
+                        costByModel: ownLedger.costByModel,
                         sessionCounts: ownLedger.sessionCounts, activeMinutes: ownLedger.activeMinutes)
         // Sorted keys → identical contents always encode to identical bytes, so
         // the byte-compare below is a true "did anything change" check.
@@ -77,6 +80,7 @@ enum StatsSync {
                   let wire = try? JSONDecoder().decode(Wire.self, from: data) else { continue }
             ledgers.append(StatsLedger.Ledger(
                 costByAgent: wire.costByAgent, costByProject: wire.costByProject,
+                costByModel: wire.costByModel ?? [:],
                 sessionCounts: wire.sessionCounts, todaySessionIDs: [],
                 activeMinutes: wire.activeMinutes))
         }
