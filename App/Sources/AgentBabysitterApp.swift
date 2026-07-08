@@ -18,7 +18,8 @@ struct AgentBabysitterApp: App {
                          style: model.menuBarStyle,
                          costToday: model.todayCost.dollars,
                          costLabel: model.moneyCompact(model.todayCost.dollars),
-                         hottestLimit: model.hottestLimitPercent)
+                         hottestLimit: model.hottestLimitPercent,
+                         sparkline: model.sparklineImage)
         }
         .menuBarExtraStyle(.window)
 
@@ -53,6 +54,8 @@ struct MenuBarLabel: View {
     /// Pre-formatted compact cost in the user's currency ("$581", "₹55k").
     var costLabel = ""
     var hottestLimit: Double?
+    /// 7-day cost trend, pre-rendered as a template image ("trend" style).
+    var sparkline: NSImage?
 
     var body: some View {
         // ⚠️ prefixes everything when any usage window is at 90%+ — the
@@ -67,6 +70,13 @@ struct MenuBarLabel: View {
             } else {
                 statusLabel
             }
+        case "trend":
+            if let sparkline {
+                composed(image: sparkline)
+            } else {
+                // Fewer than two days of history yet — status carries it.
+                statusLabel
+            }
         default:
             statusLabel
         }
@@ -78,7 +88,8 @@ struct MenuBarLabel: View {
     /// glyphs at text size inflate the line height, sinking the item below
     /// its neighbors - so the label is one CONCATENATED Text with the emoji
     /// segments at a smaller size and a slight baseline lift.
-    private func composed(text: String?, count: Int? = nil) -> some View {
+    private func composed(text: String? = nil, count: Int? = nil,
+                          image: NSImage? = nil) -> some View {
         var label = Text("")
         if limitDanger {
             label = label + Text("⚠️ ").font(.system(size: 10)).baselineOffset(1)
@@ -91,6 +102,9 @@ struct MenuBarLabel: View {
         }
         if let count {
             label = label + Text("\(count)").font(.system(size: 13, weight: .medium))
+        }
+        if let image {
+            label = label + Text(Image(nsImage: image)).baselineOffset(-1)
         }
         return label
     }

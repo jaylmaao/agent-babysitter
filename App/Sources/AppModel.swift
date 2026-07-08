@@ -26,7 +26,12 @@ final class AppModel: ObservableObject {
     @Published private(set) var runningAgentIDs: Set<String> = []
     /// Observed daily cost totals, oldest first, at most 7 days. Accumulated
     /// locally — the store only retains 24h of sessions.
-    @Published private(set) var costHistory: [(day: Date, dollars: Double)] = []
+    @Published private(set) var costHistory: [(day: Date, dollars: Double)] = [] {
+        didSet { sparklineImage = Sparkline.image(dailyDollars: costHistory.map(\.dollars)) }
+    }
+    /// Pre-rendered 7-day cost trend for the "trend" menu-bar style — drawn
+    /// once per history change, not per label render.
+    @Published private(set) var sparklineImage: NSImage?
     /// Full per-day stats history (kept indefinitely, local-day buckets):
     /// per-agent dollars, session counts, and active minutes.
     @Published private(set) var statsDays: [DayStat] = []

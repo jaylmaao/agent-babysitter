@@ -64,6 +64,7 @@ enum UISnapshots {
             // with the dev machine's real settings.
             setFixturePref(false, forKey: "showAllLimits")
             setFixturePref(false, forKey: "claudeUsageMeterEnabled")
+            setFixturePref(false, forKey: "liveUsageEnabled")
             setFixturePref("USD", forKey: "currencyCode")
             let model = AppModel()
             configure(model)
@@ -187,8 +188,12 @@ enum UISnapshots {
         menu("menu-quiet") { model in
             model.applyFixture(
                 rows: [], summary: MenuBarSummary(worstState: nil, activeCount: 0),
-                usageLimits: ["codex": limit(1, plan: "plus")],
-                installedAgents: allInstalled, runningAgentIDs: [],
+                // Cursor offline = plan tier only; the row offers the
+                // one-click "Show my real numbers" enable.
+                usageLimits: ["codex": limit(1, plan: "plus"),
+                              "cursor": limit(nil, plan: "Free")],
+                installedAgents: allInstalled + [("cursor", "Cursor")],
+                runningAgentIDs: ["cursor"],
                 todayCost: SessionCost(), costHistory: [])
         }
 
@@ -287,8 +292,28 @@ enum UISnapshots {
                              style: "limit", costToday: 0, hottestLimit: 43)
                 MenuBarLabel(summary: .init(worstState: .waitingForInput, activeCount: 1),
                              limitDanger: true, style: "limit", hottestLimit: 94)
+                MenuBarLabel(summary: .init(worstState: .working, activeCount: 2),
+                             style: "trend",
+                             sparkline: Sparkline.image(
+                                dailyDollars: [4.1, 12.6, 2.0, 18.2, 9.4, 22.9, 15.3]))
             }
             .padding(8))))
+
+        // Session drill-in: the expanded row with everything it can show —
+        // full prompt, the pending question (hook detail), timings, cwd,
+        // and the inline actions.
+        var drill = row("drill", "checkout-service", .waitingForInput,
+                        entrypoint: "claude-desktop", dollars: 12.38,
+                        startedMinutesAgo: 14,
+                        title: "add rate limiting to the checkout API and cover it with tests")
+        drill.hookDetail = HookSignal(
+            kind: .waitingForInput, timestamp: now,
+            detail: "Should I run the database migration now, or wait for staging?")
+        drill.cwd = "/Users/dev/work/checkout-service"
+        results.append(("session-drilldown", AnyView(
+            SessionRowView(row: drill, initiallyExpanded: true)
+                .frame(width: 330)
+                .padding(8))))
 
         return results
     }

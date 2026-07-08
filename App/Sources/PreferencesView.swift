@@ -107,6 +107,7 @@ struct PreferencesView: View {
                     Text("Status + count").tag("status")
                     Text("Today's cost").tag("cost")
                     Text("Hottest 5h limit %").tag("limit")
+                    Text("7-day cost trend").tag("trend")
                 }
                 Picker("Currency", selection: $model.currencyCode) {
                     ForEach(Currency.catalog, id: \.code) { currency in

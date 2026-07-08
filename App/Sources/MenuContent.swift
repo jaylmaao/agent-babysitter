@@ -182,8 +182,8 @@ struct MenuContent: View {
                     .padding(.top, 6)
                     ForEach(group.rows) { row in
                         SessionRowView(row: row, money: { model.money($0) },
-                                       onDismiss: { model.dismiss($0) })
-                            .onTapGesture { TerminalFocuser.focusSession(row) }
+                                       onDismiss: { model.dismiss($0) },
+                                       onJump: { TerminalFocuser.focusSession(row) })
                     }
                 }
             }
@@ -367,6 +367,19 @@ struct MenuContent: View {
                 paceCaption(limit, floor: model.paceFiveHourFloor, prefix: "")
                 if let weekly = limit.weeklyWindow {
                     paceCaption(weekly, floor: model.paceWeeklyFloor, prefix: "week: ")
+                }
+            }
+            // Cursor/Manus keep their real numbers behind a login the user
+            // already has — one click turns the fetch on, right where the
+            // gap is (same pattern as Claude's "Show my %").
+            if !model.liveUsageEnabled, entry.limit?.usedPercent == nil,
+               entry.id == "cursor" || entry.id == "manus" {
+                HStack {
+                    Spacer()
+                    Button("Show my real numbers") { model.liveUsageEnabled = true }
+                        .buttonStyle(.link)
+                        .font(.caption2)
+                        .help("Fetches your usage from \(entry.id == "cursor" ? "cursor.com" : "manus.im") with the login this Mac already has — nothing to type, fully reversible in Settings → Advanced.")
                 }
             }
         }
@@ -697,9 +710,38 @@ struct SessionRowView: View {
     let row: SessionRow
     var money: (Double) -> String = { String(format: "~$%.2f", $0) }
     var onDismiss: (SessionRow) -> Void = { _ in }
+    var onJump: () -> Void = {}
+    /// Fixture hook: snapshots render the drill-in without a click.
+    var initiallyExpanded = false
     @State private var hovering = false
+    @State private var expanded = false
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            if expanded || initiallyExpanded { detailPanel }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+        .background(rowBackground, in: RoundedRectangle(cornerRadius: 6))
+        .onHover { hovering = $0 }
+        .contextMenu {
+            if let url = row.transcriptURL {
+                Button("Reveal Session Log in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            }
+            Button("Copy Session ID") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(row.id, forType: .string)
+            }
+            Divider()
+            Button("Hide Until Next Activity") { onDismiss(row) }
+        }
+    }
+
+    private var header: some View {
         HStack(spacing: 8) {
             Text(row.state.dotEmoji)
             VStack(alignment: .leading, spacing: 1) {
@@ -747,12 +789,20 @@ struct SessionRowView: View {
                 }
             }
             .help(costHelp)
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+            } label: {
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .opacity(hovering || expanded ? 0.8 : 0)
+            .help(expanded ? "Hide details" : "Session details")
+            .accessibilityLabel(expanded ? "Hide session details" : "Show session details")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
         .contentShape(Rectangle())
-        .background(rowBackground, in: RoundedRectangle(cornerRadius: 6))
-        .onHover { hovering = $0 }
+        .onTapGesture { onJump() }
         .help("Click to jump to this session")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(row.projectName), \(row.state.label)"
@@ -760,19 +810,97 @@ struct SessionRowView: View {
             + (row.cost.dollars > 0 ? ", about \(Int(row.cost.dollars)) dollars" : "")
             + (row.cost.totalTokens > 0 ? ", \(row.cost.formattedTokens) tokens" : ""))
         .accessibilityHint("Jumps to this session")
-        .contextMenu {
-            if let url = row.transcriptURL {
-                Button("Reveal Session Log in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    /// The drill-in: everything the row knows, untruncated — the question
+    /// it's stuck on, the last reply, timings, the working directory — plus
+    /// the actions that otherwise hide in the context menu.
+    private var detailPanel: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Divider().padding(.vertical, 2)
+            if let title = row.title {
+                Text("“\(title)”")
+                    .font(.caption)
+                    .italic()
+                    .foregroundStyle(.secondary)
+                    .lineLimit(4)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let hook = row.hookDetail, let text = hook.detail, !text.isEmpty {
+                Label {
+                    Text(text)
+                        .lineLimit(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: hookIcon(hook.kind))
+                }
+                .font(.caption)
+                .foregroundStyle(hook.kind == .waitingForInput ? .orange : .secondary)
+                .help(hookLabel(hook.kind))
+            }
+            HStack(spacing: 4) {
+                if let started = row.turnStartedAt {
+                    Text("turn started \(Self.humanAgo(started))")
+                }
+                if let grown = row.lastGrowthAt {
+                    Text("· last activity \(Self.humanAgo(grown))")
+                }
+                if let entrypoint = row.entrypoint {
+                    Text("· \(entrypoint)")
                 }
             }
-            Button("Copy Session ID") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(row.id, forType: .string)
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            if let cwd = row.cwd {
+                Text(cwd)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(cwd)
             }
-            Divider()
-            Button("Hide Until Next Activity") { onDismiss(row) }
+            HStack(spacing: 14) {
+                Button("Jump to session") { onJump() }
+                if let url = row.transcriptURL {
+                    Button("Reveal log") {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                }
+                Button("Copy ID") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(row.id, forType: .string)
+                }
+            }
+            .buttonStyle(.link)
+            .font(.caption)
         }
+        .padding(.bottom, 3)
+    }
+
+    private func hookIcon(_ kind: HookSignal.Kind) -> String {
+        switch kind {
+        case .waitingForInput: "questionmark.bubble"
+        case .turnCompleted: "text.bubble"
+        case .toolStarted: "gearshape.2"
+        }
+    }
+
+    private func hookLabel(_ kind: HookSignal.Kind) -> String {
+        switch kind {
+        case .waitingForInput: "What it's asking you"
+        case .turnCompleted: "How the last reply started"
+        case .toolStarted: "The tool it's running"
+        }
+    }
+
+    /// "3m ago" / "just now" — coarse on purpose so the popover's 2s tick
+    /// doesn't animate a counter.
+    static func humanAgo(_ date: Date) -> String {
+        let seconds = max(0, Date().timeIntervalSince(date))
+        if seconds < 60 { return "just now" }
+        if seconds < 3600 { return "\(Int(seconds / 60))m ago" }
+        if seconds < 86_400 { return "\(Int(seconds / 3600))h \(Int(seconds.truncatingRemainder(dividingBy: 3600) / 60))m ago" }
+        return "\(Int(seconds / 86_400))d ago"
     }
 
     /// Plain-language cost explanation for the row's trailing numbers.
