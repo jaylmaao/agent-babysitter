@@ -311,7 +311,7 @@ enum UISnapshots {
             detail: "Should I run the database migration now, or wait for staging?")
         drill.cwd = "/Users/dev/work/checkout-service"
         results.append(("session-drilldown", AnyView(
-            SessionRowView(row: drill, initiallyExpanded: true)
+            SessionRowView(row: drill, isExpanded: true)
                 .frame(width: 330)
                 .padding(8))))
 

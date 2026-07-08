@@ -104,7 +104,7 @@ struct MenuBarLabel: View {
             label = label + Text("\(count)").font(.system(size: 13, weight: .medium))
         }
         if let image {
-            label = label + Text(Image(nsImage: image)).baselineOffset(-1)
+            label = label + Text(Image(nsImage: image).renderingMode(.template)).baselineOffset(-1)
         }
         return label
     }

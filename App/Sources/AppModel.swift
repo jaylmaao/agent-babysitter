@@ -27,11 +27,17 @@ final class AppModel: ObservableObject {
     /// Observed daily cost totals, oldest first, at most 7 days. Accumulated
     /// locally — the store only retains 24h of sessions.
     @Published private(set) var costHistory: [(day: Date, dollars: Double)] = [] {
-        didSet { sparklineImage = Sparkline.image(dailyDollars: costHistory.map(\.dollars)) }
+        didSet { rebuildSparkline() }
     }
     /// Pre-rendered 7-day cost trend for the "trend" menu-bar style — drawn
-    /// once per history change, not per label render.
+    /// once per history change (and only while that style is active), not per
+    /// label render.
     @Published private(set) var sparklineImage: NSImage?
+
+    private func rebuildSparkline() {
+        sparklineImage = menuBarStyle == "trend"
+            ? Sparkline.image(dailyDollars: costHistory.map(\.dollars)) : nil
+    }
     /// Full per-day stats history (kept indefinitely, local-day buckets):
     /// per-agent dollars, session counts, and active minutes.
     @Published private(set) var statsDays: [DayStat] = []
@@ -203,9 +209,14 @@ final class AppModel: ObservableObject {
             applyHotKey()
         }
     }
-    /// What the menu bar icon shows: "status", "cost", or "limit".
+    /// What the menu bar icon shows: "status", "cost", "limit", or "trend".
     @Published var menuBarStyle: String {
-        didSet { UserDefaults.standard.set(menuBarStyle, forKey: "menuBarStyle") }
+        didSet {
+            UserDefaults.standard.set(menuBarStyle, forKey: "menuBarStyle")
+            // Switching into "trend" needs the sparkline built now, not on
+            // the next cost change; switching out frees it.
+            if menuBarStyle != oldValue { rebuildSparkline() }
+        }
     }
     /// Hottest pace-corrected 5h usage across agents, for the "limit" style.
     @Published private(set) var hottestLimitPercent: Double?
@@ -371,6 +382,12 @@ final class AppModel: ObservableObject {
            let saved = try? JSONDecoder().decode([String: UsageLimitSnapshot].self, from: data) {
             capturedUsage = saved.filter { Date().timeIntervalSince($0.value.capturedAt) < 300 * 60 }
         }
+        // Seed the cost trend from disk so the sparkline (and the popover
+        // chart) are populated at launch — recordCostHistory only reassigns
+        // when today's total *changes*, which may not happen for a while
+        // after a same-day relaunch.
+        let persistedHistory = defaults.dictionary(forKey: "costHistory") as? [String: Double] ?? [:]
+        costHistory = DailyCostHistory.series(persistedHistory)
         guard !Self.isSnapshotMode else { return }
         if !defaults.bool(forKey: "welcomeDismissed"),
            defaults.string(forKey: "lastSeenGuideVersion") == nil {

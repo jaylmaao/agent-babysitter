@@ -11,6 +11,16 @@ struct MenuContent: View {
     @State private var showCostInfo = false
     @AppStorage("showAllLimits") private var storedShowAllLimits = false
     private var showAllLimits: Bool { storedShowAllLimits || forceShowAllLimits }
+    /// Which session rows are expanded into their drill-in. Owned here (not
+    /// per-row) so the list height can grow to fit the expanded content.
+    @State private var expandedRows: Set<String> = []
+
+    private func toggleExpanded(_ id: String) {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            if expandedRows.contains(id) { expandedRows.remove(id) }
+            else { expandedRows.insert(id) }
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -159,10 +169,13 @@ struct MenuContent: View {
     }
 
     /// Two-line session rows ≈44pt, group headers ≈26pt, list padding 12pt.
+    /// An expanded drill-in adds ≈150pt, and the cap lifts so it isn't
+    /// clipped — seeing it is the whole point of expanding.
     private var estimatedListHeight: CGFloat {
         let rows = CGFloat(model.rows.count) * 44
         let headers = CGFloat(groupedRows.count) * 26
-        return min(380, rows + headers + 12)
+        let expanded = CGFloat(expandedRows.count) * 150
+        return min(expandedRows.isEmpty ? 380 : 540, rows + headers + expanded + 12)
     }
 
     private var sessionListContent: some View {
@@ -183,7 +196,9 @@ struct MenuContent: View {
                     ForEach(group.rows) { row in
                         SessionRowView(row: row, money: { model.money($0) },
                                        onDismiss: { model.dismiss($0) },
-                                       onJump: { TerminalFocuser.focusSession(row) })
+                                       onJump: { TerminalFocuser.focusSession(row) },
+                                       isExpanded: expandedRows.contains(row.id),
+                                       onToggleExpand: { toggleExpanded(row.id) })
                     }
                 }
             }
@@ -711,19 +726,17 @@ struct SessionRowView: View {
     var money: (Double) -> String = { String(format: "~$%.2f", $0) }
     var onDismiss: (SessionRow) -> Void = { _ in }
     var onJump: () -> Void = {}
-    /// Fixture hook: snapshots render the drill-in without a click.
-    var initiallyExpanded = false
+    /// Expansion is owned by the parent list (so it can size to fit); the
+    /// fixture passes a constant true to render the drill-in for snapshots.
+    var isExpanded = false
+    var onToggleExpand: () -> Void = {}
     @State private var hovering = false
-    @State private var expanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            if expanded || initiallyExpanded { detailPanel }
+            if isExpanded { detailPanel }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
-        .contentShape(Rectangle())
         .background(rowBackground, in: RoundedRectangle(cornerRadius: 6))
         .onHover { hovering = $0 }
         .contextMenu {
@@ -790,17 +803,21 @@ struct SessionRowView: View {
             }
             .help(costHelp)
             Button {
-                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+                onToggleExpand()
             } label: {
-                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .opacity(hovering || expanded ? 0.8 : 0)
-            .help(expanded ? "Hide details" : "Session details")
-            .accessibilityLabel(expanded ? "Hide session details" : "Show session details")
+            .opacity(hovering || isExpanded ? 0.8 : 0)
+            // opacity(0) still hit-tests; keep the hidden chevron from eating
+            // taps meant for the row.
+            .allowsHitTesting(hovering || isExpanded)
+            .help(isExpanded ? "Hide details" : "Session details")
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
         .contentShape(Rectangle())
         .onTapGesture { onJump() }
         .help("Click to jump to this session")
@@ -810,6 +827,10 @@ struct SessionRowView: View {
             + (row.cost.dollars > 0 ? ", about \(Int(row.cost.dollars)) dollars" : "")
             + (row.cost.totalTokens > 0 ? ", \(row.cost.formattedTokens) tokens" : ""))
         .accessibilityHint("Jumps to this session")
+        // The chevron is swallowed by children:.ignore, so expose the drill-in
+        // toggle as an action on the combined element instead.
+        .accessibilityAction(named: isExpanded ? "Hide details" : "Show details",
+                             onToggleExpand)
     }
 
     /// The drill-in: everything the row knows, untruncated — the question
@@ -818,7 +839,9 @@ struct SessionRowView: View {
     private var detailPanel: some View {
         VStack(alignment: .leading, spacing: 5) {
             Divider().padding(.vertical, 2)
-            if let title = row.title {
+            // The full prompt, untruncated. Skipped when it's just the
+            // project name (Cursor composers) — the header already shows it.
+            if let title = row.title, title != row.projectName {
                 Text("“\(title)”")
                     .font(.caption)
                     .italic()
@@ -874,7 +897,8 @@ struct SessionRowView: View {
             .buttonStyle(.link)
             .font(.caption)
         }
-        .padding(.bottom, 3)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
     }
 
     private func hookIcon(_ kind: HookSignal.Kind) -> String {
