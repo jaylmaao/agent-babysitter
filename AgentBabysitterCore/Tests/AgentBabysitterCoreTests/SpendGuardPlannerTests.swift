@@ -73,7 +73,7 @@ final class SpendGuardPlannerTests: XCTestCase {
     }
 
     func testMessagesAreAdvisoryNotStopping() {
-        let m = SpendGuardPlanner.message(.burningFast, project: "checkout", dollars: 5, burn: 3)
+        let m = SpendGuardPlanner.message(.burningFast, project: "checkout", dollarsText: "$5", burnText: "$3")
         XCTAssertTrue(m.contains("checkout"))
         // Never tells the user we stopped/paused their work.
         for banned in ["stopped", "paused", "killed", "halted", "blocked"] {

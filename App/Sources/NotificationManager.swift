@@ -85,7 +85,10 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         requestAuthorizationIfNeeded()
         let content = UNMutableNotificationContent()
         content.title = suggestion.kind == .burningFast ? "Spending fast 💸" : "Budget passed 💸"
-        content.body = suggestion.message
+        content.body = SpendGuardPlanner.message(
+            suggestion.kind, project: suggestion.projectName,
+            dollarsText: money(suggestion.dollars),
+            burnText: money(suggestion.burnRatePerMinute))
         content.userInfo = ["sessionID": suggestion.id]
         content.sound = .default
         content.categoryIdentifier = "session-event"

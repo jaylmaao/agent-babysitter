@@ -36,8 +36,9 @@ public struct SpendGuardPlanner: Equatable, Sendable {
         case crossedBudget
     }
 
-    /// A nudge for one session. `message` is advisory copy the app can show in
-    /// a notification or the menu; acting on it is entirely the user's choice.
+    /// A nudge for one session. Numbers only — the app formats them through its
+    /// display-currency `money` closure and builds copy via `message(...)`, so
+    /// nudges respect the user's currency. Acting on it is always their choice.
     public struct Suggestion: Equatable, Sendable, Identifiable {
         public var id: String
         public var projectName: String
@@ -45,13 +46,12 @@ public struct SpendGuardPlanner: Equatable, Sendable {
         public var kind: Kind
         public var dollars: Double
         public var burnRatePerMinute: Double
-        public var message: String
 
         public init(id: String, projectName: String, agentName: String, kind: Kind,
-                    dollars: Double, burnRatePerMinute: Double, message: String) {
+                    dollars: Double, burnRatePerMinute: Double) {
             self.id = id; self.projectName = projectName; self.agentName = agentName
             self.kind = kind; self.dollars = dollars
-            self.burnRatePerMinute = burnRatePerMinute; self.message = message
+            self.burnRatePerMinute = burnRatePerMinute
         }
     }
 
@@ -93,17 +93,13 @@ public struct SpendGuardPlanner: Equatable, Sendable {
                 t.burnFired = true
                 out.append(Suggestion(id: row.id, projectName: row.projectName,
                                       agentName: row.agentName, kind: .burningFast,
-                                      dollars: dollars, burnRatePerMinute: t.lastBurn,
-                                      message: Self.message(.burningFast, project: row.projectName,
-                                                            dollars: dollars, burn: t.lastBurn)))
+                                      dollars: dollars, burnRatePerMinute: t.lastBurn))
             }
             if row.state == .working, dollars >= config.sessionBudget, !t.budgetFired {
                 t.budgetFired = true
                 out.append(Suggestion(id: row.id, projectName: row.projectName,
                                       agentName: row.agentName, kind: .crossedBudget,
-                                      dollars: dollars, burnRatePerMinute: t.lastBurn,
-                                      message: Self.message(.crossedBudget, project: row.projectName,
-                                                            dollars: dollars, burn: t.lastBurn)))
+                                      dollars: dollars, burnRatePerMinute: t.lastBurn))
             }
             tracks[row.id] = t
         }
@@ -111,20 +107,16 @@ public struct SpendGuardPlanner: Equatable, Sendable {
         return out
     }
 
-    /// Advisory copy — always a suggestion to look, never an instruction to stop.
-    public static func message(_ kind: Kind, project: String, dollars: Double, burn: Double) -> String {
-        let money = Self.usd(dollars)
+    /// Advisory copy from PRE-FORMATTED currency strings (the app formats the
+    /// numbers via its display-currency `money` closure). Always a suggestion
+    /// to look, never an instruction to stop.
+    public static func message(_ kind: Kind, project: String,
+                               dollarsText: String, burnText: String) -> String {
         switch kind {
         case .burningFast:
-            let rate = Self.usd(burn)
-            return "\(project) is spending ~\(rate)/min right now (\(money) so far). Might be worth a peek — if it's looping or over-thinking, a nudge or a cheaper model could save the rest."
+            return "\(project) is spending \(burnText)/min right now (\(dollarsText) so far). Might be worth a peek — if it's looping or over-thinking, a nudge or a cheaper model could save the rest."
         case .crossedBudget:
-            return "\(project) has passed \(money) this session. If it's still on track, no worries — if not, now's a good time to jump in."
+            return "\(project) has passed \(dollarsText) this session. If it's still on track, no worries — if not, now's a good time to jump in."
         }
-    }
-
-    private static func usd(_ v: Double) -> String {
-        v >= 100 ? String(format: "$%.0f", v)
-                 : (v >= 10 ? String(format: "$%.1f", v) : String(format: "$%.2f", v))
     }
 }

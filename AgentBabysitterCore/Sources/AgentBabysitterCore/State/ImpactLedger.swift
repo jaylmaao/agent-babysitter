@@ -56,6 +56,16 @@ public enum ImpactLedger {
         return out
     }
 
+    /// Drop day keys older than `cutoffKey`. "yyyy-MM-dd" keys sort lexically
+    /// = chronologically, so `>=` keeps the recent window and bounds the blob.
+    public static func pruned(_ ledger: Ledger, keepingFrom cutoffKey: String) -> Ledger {
+        func keep(_ d: [String: Int]) -> [String: Int] { d.filter { $0.key >= cutoffKey } }
+        return Ledger(stallsCaught: keep(ledger.stallsCaught),
+                      waitingPings: keep(ledger.waitingPings),
+                      suggestions: keep(ledger.suggestions),
+                      dollarsFlagged: ledger.dollarsFlagged.filter { $0.key >= cutoffKey })
+    }
+
     public struct Summary: Equatable, Sendable {
         public var stalls: Int
         public var waits: Int

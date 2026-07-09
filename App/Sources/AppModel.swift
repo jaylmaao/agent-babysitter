@@ -831,27 +831,30 @@ final class AppModel: ObservableObject {
             }
         }
 
-        // Advisory spend guard — a nudge to look, never a pause. Evaluate every
-        // tick so burn windows stay warm; deliver only when not muted.
+        // Advisory spend guard — a nudge to look, never a pause. Paused while
+        // muted (like the waiting reminder) so a nudge is never silently
+        // consumed by the planner's once-per-episode flag; a still-fast session
+        // nudges once banners resume.
         var newSuggestions = 0
         var dollarsFlagged = 0.0
-        if spendGuardEnabled {
+        if spendGuardEnabled, !notificationsMuted {
             let suggestions = spendGuardPlanner.evaluate(
                 rows: rows,
                 config: SpendGuardPlanner.Config(sessionBudget: max(1, spendGuardBudget)))
-            if !notificationsMuted {
-                for s in suggestions {
-                    notificationManager.deliverSpendSuggestion(s)
-                    newSuggestions += 1
-                    dollarsFlagged += s.dollars
-                }
+            var flaggedSessions: Set<String> = []   // a session counts once even if both kinds fire
+            for s in suggestions {
+                notificationManager.deliverSpendSuggestion(s)
+                newSuggestions += 1
+                if flaggedSessions.insert(s.id).inserted { dollarsFlagged += s.dollars }
             }
         }
 
-        // Record what we caught for the impact ledger: new stall episodes and
-        // waiting pings the planner surfaced this tick, plus any spend nudges.
-        let newStalls = events.filter { $0.kind == .stalled }.count
-        let newWaits = events.filter { $0.kind == .waitingForInput }.count
+        // Record only what we actually surfaced: stall/wait edges for the
+        // categories still enabled and not muted (quiet hours already returned
+        // above), plus the spend nudges delivered this tick.
+        let delivering = !notificationsMuted
+        let newStalls = (delivering && notifyStalled) ? events.filter { $0.kind == .stalled }.count : 0
+        let newWaits = (delivering && notifyWaiting) ? events.filter { $0.kind == .waitingForInput }.count : 0
         if newStalls > 0 || newWaits > 0 || newSuggestions > 0 || dollarsFlagged > 0 {
             impactLedger = ImpactLedger.recorded(
                 impactLedger, todayKey: DailyCostHistory.key(for: Date()),
@@ -861,22 +864,27 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Day keys ("yyyy-MM-dd") for every day of the current month up to today.
+    /// Day keys for every day of the current month up to today. Builds each
+    /// date from fixed y/m/d components — `Calendar.date(bySetting:)` searches
+    /// FORWARD, so it would roll earlier days into next month and drop them.
     private static func currentMonthDayKeys() -> [String] {
         let now = Date()
         let cal = Calendar.current
         let today = cal.component(.day, from: now)
-        var keys: [String] = []
-        for day in 1...max(1, today) {
-            if let date = cal.date(bySetting: .day, value: day, of: now), date <= now {
-                keys.append(DailyCostHistory.key(for: date))
-            }
+        let year = cal.component(.year, from: now)
+        let month = cal.component(.month, from: now)
+        return (1...max(1, today)).compactMap { day in
+            cal.date(from: DateComponents(year: year, month: month, day: day))
+                .map { DailyCostHistory.key(for: $0) }
         }
-        return keys
     }
 
     /// Persist the impact ledger and refresh the published month summary.
     private func persistImpact() {
+        // Keep ~2 months so the current-month view always has its data while the
+        // stored blob stays bounded instead of growing a key per day forever.
+        let cutoff = DailyCostHistory.key(for: Date().addingTimeInterval(-62 * 86400))
+        impactLedger = ImpactLedger.pruned(impactLedger, keepingFrom: cutoff)
         if let data = try? JSONEncoder().encode(impactLedger) {
             UserDefaults.standard.set(data, forKey: "impactLedger")
         }
