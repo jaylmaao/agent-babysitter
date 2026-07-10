@@ -108,34 +108,42 @@ public final class TranscriptFileTailer {
 /// <session-uuid>.jsonl` modified within `maxAge`.
 public enum SessionDirectoryScanner {
 
+    /// Walks the whole tree, not just `<root>/<project>/*.jsonl`. Claude Code's
+    /// parallel sub-agents (the Task tool) write to
+    /// `<root>/<project>/<session>/subagents/agent-*.jsonl` — a one-level scan
+    /// never sees them, so their spend went uncounted entirely.
     public static func recentTranscripts(under root: URL,
                                          maxAge: TimeInterval,
                                          now: Date = Date()) -> [SessionFileInfo] {
-        let fm = FileManager.default
-        guard let projectDirs = try? fm.contentsOfDirectory(at: root,
-                                                            includingPropertiesForKeys: nil,
-                                                            options: [.skipsHiddenFiles]) else {
-            return []
-        }
+        let keys: [URLResourceKey] = [.contentModificationDateKey, .isRegularFileKey]
+        guard let walker = FileManager.default.enumerator(
+            at: root, includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles]) else { return [] }
+
         var found: [SessionFileInfo] = []
-        for dir in projectDirs {
-            let files = (try? fm.contentsOfDirectory(
-                at: dir,
-                includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-                options: [.skipsHiddenFiles])) ?? []
-            for file in files where file.pathExtension == "jsonl" {
-                guard let values = try? file.resourceValues(
-                        forKeys: [.contentModificationDateKey, .isRegularFileKey]),
-                      values.isRegularFile == true,
-                      let modified = values.contentModificationDate,
-                      now.timeIntervalSince(modified) <= maxAge else { continue }
-                found.append(SessionFileInfo(
-                    sessionID: file.deletingPathExtension().lastPathComponent,
-                    projectDirName: dir.lastPathComponent,
-                    lastModified: modified,
-                    url: file))
-            }
+        for case let file as URL in walker where file.pathExtension == "jsonl" {
+            guard let values = try? file.resourceValues(forKeys: Set(keys)),
+                  values.isRegularFile == true,
+                  let modified = values.contentModificationDate,
+                  now.timeIntervalSince(modified) <= maxAge else { continue }
+            found.append(SessionFileInfo(
+                sessionID: file.deletingPathExtension().lastPathComponent,
+                projectDirName: projectDirName(for: file, under: root),
+                lastModified: modified,
+                url: file))
         }
         return found
+    }
+
+    /// The `<project>` component directly under the transcript root. A
+    /// sub-agent's immediate parent is "subagents", which is not a project.
+    public static func projectDirName(for file: URL, under root: URL) -> String {
+        let rootParts = root.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        let fileParts = file.standardizedFileURL.resolvingSymlinksInPath().pathComponents
+        guard fileParts.count > rootParts.count,
+              Array(fileParts.prefix(rootParts.count)) == rootParts else {
+            return file.deletingLastPathComponent().lastPathComponent
+        }
+        return fileParts[rootParts.count]
     }
 }
