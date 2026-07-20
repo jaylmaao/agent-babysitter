@@ -1042,12 +1042,12 @@ final class AppModel: ObservableObject {
     /// from the transcripts. Days whose transcripts are gone keep what's stored.
     private func recomputeStatsHistoryIfNeeded() {
         let defaults = UserDefaults.standard
-        // Bumped to 3: the Codex cached-token double-count fix and the two added
-        // model prices change historical dollars, but persisted daily totals are
-        // frozen (StatsLedger max-merges, never lowers). Force one rebuild from
-        // the transcripts so old Codex over-counts self-correct.
-        guard defaults.integer(forKey: "statsRecomputeVersion") < 3 else { return }
-        defaults.set(3, forKey: "statsRecomputeVersion")   // once per version, even if it throws
+        // Bumped to 4: v3 corrected Codex dollars; v4 re-keys costByProject to
+        // the cwd basename (was the munged dir), which split each project into
+        // two rows in the stats window. Persisted totals are frozen, so force one
+        // rebuild from the transcripts to collapse the duplicates.
+        guard defaults.integer(forKey: "statsRecomputeVersion") < 4 else { return }
+        defaults.set(4, forKey: "statsRecomputeVersion")   // once per version, even if it throws
         let adapters = self.adapters
         Task.detached(priority: .utility) { [weak self] in
             let totals = StatsRecompute.run(adapters: adapters)
@@ -1140,7 +1140,8 @@ final class AppModel: ObservableObject {
                 title: row.title,
                 inputTokens: row.cost.inputTokens, outputTokens: row.cost.outputTokens,
                 cacheReadTokens: row.cost.cacheReadTokens,
-                cacheWriteTokens: row.cost.cacheWriteTokens)
+                cacheWriteTokens: row.cost.cacheWriteTokens,
+                isActivityBased: row.isActivityBased)
             history = SessionHistoryLedger.record(entry, into: history)
         }
         guard history != sessionHistory else { return }

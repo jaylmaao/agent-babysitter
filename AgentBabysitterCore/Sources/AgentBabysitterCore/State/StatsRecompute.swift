@@ -44,7 +44,13 @@ public enum StatsRecompute {
                 reader.adoptCostClaims(claims)
                 try? reader.refresh()
 
-                let project = adapter.projectDirName(forTranscript: url)
+                // Match the live tick's key (SessionStore.todayCostByProject):
+                // cwd basename, falling back to the munged dir. Keying on the
+                // munged dir here made recompute and live-tick write TWO rows for
+                // the same project in the stats window.
+                let project = reader.lastKnownCWD
+                    .map { URL(fileURLWithPath: $0).lastPathComponent }
+                    ?? adapter.projectDirName(forTranscript: url)
                 for (day, cost) in reader.dailyCosts where cost.dollars > 0 {
                     let key = LocalDay.key(of: day)
                     totals.dayTotals[key, default: 0] += cost.dollars

@@ -164,8 +164,12 @@ struct StatsView: View {
                     }
                 }
             }
+            // Only under the Today range: this split is today's (the per-day
+            // history doesn't persist a token split to build a range total from),
+            // so showing it beside range-scoped dollars for Week/Month misleads.
             let tokens = model.todayCost
-            if tokens.inputTokens + tokens.outputTokens + tokens.cacheReadTokens
+            if range == .today,
+               tokens.inputTokens + tokens.outputTokens + tokens.cacheReadTokens
                 + tokens.cacheWriteTokens > 0 {
                 Divider()
                 // No single headline figure: the four kinds bill so differently

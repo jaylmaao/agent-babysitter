@@ -317,7 +317,7 @@ struct MenuContent: View {
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                             .frame(width: 44, alignment: .trailing)
-                            .help("The 5-hour window rolled over; fresh numbers arrive with the next agent activity.")
+                            .help("The \(windowName(limit.windowMinutes)) rolled over; fresh numbers arrive with the next agent activity.")
                     } else {
                         // Readings age between turns; show the pace-corrected
                         // estimate ("≈9%") once one applies.
@@ -381,7 +381,14 @@ struct MenuContent: View {
             // path classifies as noise. Closed apps aren't burning anything,
             // so their pace is history, not a prediction: running only.
             if entry.running, let limit = entry.limit {
-                paceCaption(limit, floor: model.paceFiveHourFloor, prefix: "")
+                // Codex now delivers a WEEKLY window as its primary reading
+                // (window_minutes 10080, no secondary), so pace it against the
+                // weekly floor and label it — not the 5-hour path, which fired
+                // the wrong pace threshold and dedup bucket.
+                let primaryIsWeekly = limit.windowMinutes >= 7 * 24 * 60
+                paceCaption(limit,
+                            floor: primaryIsWeekly ? model.paceWeeklyFloor : model.paceFiveHourFloor,
+                            prefix: primaryIsWeekly ? "week: " : "")
                 if let weekly = limit.weeklyWindow {
                     paceCaption(weekly, floor: model.paceWeeklyFloor, prefix: "week: ")
                 }
@@ -585,8 +592,10 @@ struct MenuContent: View {
             if !model.noAgentsDetected {
             // Dollars only — a compact figure that fits. Never dump the day's
             // 4-way token breakdown here (billions of cache reads overflowed the
-            // popover into a multi-line blob); "≥" flags an unpriced model.
-            Text("Today: \(CostConfidence.amountPrefix(CostConfidence.level(for: model.todayCost)))\(model.money(model.todayCost.dollars))\(model.costsArePlanValue ? " value" : "")")
+            // popover into a multi-line blob). Replace money()'s "~" with the
+            // confidence prefix ("≥" when a model is unpriced) — don't prepend,
+            // or it double-tildes ("~~$18").
+            Text("Today: \(model.money(model.todayCost.dollars).replacingOccurrences(of: "~", with: CostConfidence.amountPrefix(CostConfidence.level(for: model.todayCost))))\(model.costsArePlanValue ? " value" : "")")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)

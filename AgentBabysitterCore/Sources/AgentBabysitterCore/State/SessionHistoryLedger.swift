@@ -24,12 +24,17 @@ public struct SessionHistoryEntry: Equatable, Sendable, Codable, Identifiable {
     public var outputTokens: Int?
     public var cacheReadTokens: Int?
     public var cacheWriteTokens: Int?
+    /// True for activity-based agents (Cursor/Gemini/…) that record no tokens on
+    /// disk — the view shows "no token data" instead of a false "—"/"0 tok".
+    /// Optional so entries written before this field decode unchanged.
+    public var isActivityBased: Bool?
 
     public init(id: String, sessionID: String, agentID: String, agentName: String,
                 project: String, cwd: String?, startedAt: Date?, endedAt: Date,
                 dollars: Double, totalTokens: Int, transcriptPath: String?,
                 title: String? = nil, inputTokens: Int? = nil, outputTokens: Int? = nil,
-                cacheReadTokens: Int? = nil, cacheWriteTokens: Int? = nil) {
+                cacheReadTokens: Int? = nil, cacheWriteTokens: Int? = nil,
+                isActivityBased: Bool? = nil) {
         self.id = id
         self.sessionID = sessionID
         self.agentID = agentID
@@ -46,6 +51,7 @@ public struct SessionHistoryEntry: Equatable, Sendable, Codable, Identifiable {
         self.outputTokens = outputTokens
         self.cacheReadTokens = cacheReadTokens
         self.cacheWriteTokens = cacheWriteTokens
+        self.isActivityBased = isActivityBased
     }
 
     /// Reconstructs a `SessionCost` for display. Legacy entries (no persisted

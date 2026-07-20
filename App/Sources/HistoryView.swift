@@ -94,6 +94,9 @@ struct HistoryView: View {
         if entry.dollars > 0 { return model.money(entry.dollars) }
         if entry.cost.hasTokens { return entry.cost.tokenBreakdown }
         if entry.totalTokens > 0 { return "\(SessionCost.abbreviatedCount(entry.totalTokens)) tok" }
+        // Match the live row: an activity-based agent records no tokens on disk,
+        // which is different from a session we simply couldn't read.
+        if entry.isActivityBased == true { return "no token data" }
         return "—"
     }
 

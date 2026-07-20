@@ -73,21 +73,24 @@ enum UISnapshots {
         }
 
         let now = Date()
+        let activityAgents: Set<String> = ["antigravity", "antigravity-ide",
+                                           "antigravity-cli", "cursor", "gemini",
+                                           "gemini-cli", "manus", "openclaw"]
         func row(_ id: String, _ project: String, _ state: SessionState,
                  agent: (String, String) = ("claude-code", "Claude Code"),
                  entrypoint: String? = nil, dollars: Double = 0,
                  startedMinutesAgo: Double = 6, unreadable: Bool = false,
-                 title: String? = nil) -> SessionRow {
+                 title: String? = nil, cost: SessionCost? = nil) -> SessionRow {
             SessionRow(id: id, projectName: project, state: state,
                        turnStartedAt: now.addingTimeInterval(-startedMinutesAgo * 60),
                        lastGrowthAt: now.addingTimeInterval(-30), isUnreadable: unreadable,
                        pid: 123, cwd: nil,
                        // Tokens derived from dollars (~$25/M blended) so the
                        // rows exercise the price+tokens trailing block.
-                       cost: SessionCost(dollars: dollars,
-                                         totalTokens: Int(dollars * 40_000)),
+                       cost: cost ?? SessionCost(dollars: dollars,
+                                                 totalTokens: Int(dollars * 40_000)),
                        entrypoint: entrypoint, agentID: agent.0, agentName: agent.1,
-                       title: title)
+                       isActivityBased: activityAgents.contains(agent.0), title: title)
         }
 
         func limit(_ used: Double?, plan: String?, resetsInMinutes: Double = 135,
@@ -126,6 +129,31 @@ enum UISnapshots {
                 installedAgents: allInstalled,
                 runningAgentIDs: ["claude-code", "codex", "antigravity"],
                 todayCost: SessionCost(dollars: 18.15), costHistory: history)
+        }
+
+        // Token-display fixes: a heavy-cache priced row (its split lives in the
+        // drill-in, the row shows dollars), an activity agent ("no token data",
+        // not "—"/"0 tok"), and an unpriced model ("pricing unknown"); the
+        // footer must stay compact with a single "≥" (no "~~", no token blob).
+        menu("menu-tokens") { model in
+            model.applyFixture(
+                rows: [row("a", "checkout-service", .working, dollars: 128.40,
+                           cost: SessionCost(dollars: 128.40, totalTokens: 2_100_000,
+                                             inputTokens: 1_900_000, outputTokens: 200_000,
+                                             cacheReadTokens: 4_800_000_000,
+                                             cacheWriteTokens: 130_000_000)),
+                       row("b", "design-notes", .done, agent: ("cursor", "Cursor")),
+                       row("c", "prototype", .working, agent: ("codex", "Codex"),
+                           cost: SessionCost(dollars: 0, totalTokens: 44_000,
+                                             unknownModels: ["gpt-5.6-sol"],
+                                             inputTokens: 30_000, outputTokens: 14_000))],
+                summary: MenuBarSummary(worstState: .working, activeCount: 3),
+                usageLimits: ["codex": limit(25, plan: "plus",
+                                             resetsInMinutes: 4 * 24 * 60, windowMinutes: 10080)],
+                installedAgents: allInstalled + [("cursor", "Cursor")],
+                runningAgentIDs: ["claude-code", "cursor", "codex"],
+                todayCost: SessionCost(dollars: 352.10, unknownModels: ["gpt-5.6-sol"]),
+                costHistory: history)
         }
 
         // Currency conversion + limits ordering: Codex's window has rolled
@@ -303,9 +331,12 @@ enum UISnapshots {
         // full prompt, the pending question (hook detail), timings, cwd,
         // and the inline actions.
         var drill = row("drill", "checkout-service", .waitingForInput,
-                        entrypoint: "claude-desktop", dollars: 12.38,
-                        startedMinutesAgo: 14,
-                        title: "add rate limiting to the checkout API and cover it with tests")
+                        entrypoint: "claude-desktop", startedMinutesAgo: 14,
+                        title: "add rate limiting to the checkout API and cover it with tests",
+                        cost: SessionCost(dollars: 12.38, totalTokens: 2_100_000,
+                                          inputTokens: 1_900_000, outputTokens: 200_000,
+                                          cacheReadTokens: 4_800_000_000,
+                                          cacheWriteTokens: 130_000_000))
         drill.hookDetail = HookSignal(
             kind: .waitingForInput, timestamp: now,
             detail: "Should I run the database migration now, or wait for staging?")
