@@ -276,7 +276,9 @@ final class AppModel: ObservableObject {
     private var onboardingPollTimer: Timer?
     private var notificationPlanner = NotificationPlanner()
     private var waitingReminderPlanner = WaitingReminderPlanner()
-    private var spendGuardPlanner = SpendGuardPlanner()
+    private var spendGuardPlanner = SpendGuardPlanner(
+        firedBurn: Set(UserDefaults.standard.stringArray(forKey: "spendGuardFiredBurn") ?? []),
+        firedBudget: Set(UserDefaults.standard.stringArray(forKey: "spendGuardFiredBudget") ?? []))
     /// "What Agent Babysitter caught for you" — persisted across launches and
     /// summed for the current month into `impactThisMonth` for the stats view.
     private var impactLedger = ImpactLedger.Ledger()
@@ -874,6 +876,13 @@ final class AppModel: ObservableObject {
                 notificationManager.deliverSpendSuggestion(s)
                 newSuggestions += 1
                 if flaggedSessions.insert(s.id).inserted { dollarsFlagged += s.dollars }
+            }
+            // Remember which sessions were nudged so quitting and reopening
+            // doesn't repeat every nudge for a session that's still running.
+            if !suggestions.isEmpty {
+                let defaults = UserDefaults.standard
+                defaults.set(Array(spendGuardPlanner.firedBurn), forKey: "spendGuardFiredBurn")
+                defaults.set(Array(spendGuardPlanner.firedBudget), forKey: "spendGuardFiredBudget")
             }
         }
 

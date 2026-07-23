@@ -63,8 +63,28 @@ public struct SpendGuardPlanner: Equatable, Sendable {
         var budgetFired: Bool
     }
     private var tracks: [String: Track] = [:]
+    /// Sessions already nudged in a PREVIOUS launch. The tracks live in memory,
+    /// so without this a quit-and-reopen re-fires every nudge the user already
+    /// saw for a still-running session.
+    private var restoredBurnFired: Set<String> = []
+    private var restoredBudgetFired: Set<String> = []
 
     public init() {}
+
+    /// Seed the already-nudged sessions from persisted state at launch.
+    public init(firedBurn: Set<String>, firedBudget: Set<String>) {
+        restoredBurnFired = firedBurn
+        restoredBudgetFired = firedBudget
+    }
+
+    /// Sessions that have been nudged, for the app layer to persist. Includes
+    /// restored ids so a session pruned from `tracks` isn't re-nudged later.
+    public var firedBurn: Set<String> {
+        restoredBurnFired.union(tracks.filter(\.value.burnFired).keys)
+    }
+    public var firedBudget: Set<String> {
+        restoredBudgetFired.union(tracks.filter(\.value.budgetFired).keys)
+    }
 
     /// Feed every refresh; returns suggestions newly due this tick (each kind
     /// at most once per session, reset when the session leaves the list).
@@ -75,8 +95,12 @@ public struct SpendGuardPlanner: Equatable, Sendable {
         for row in rows {
             seen.insert(row.id)
             let dollars = row.cost.dollars
+            // A first sighting inherits whatever this session was already
+            // nudged for before the app restarted.
             var t = tracks[row.id] ?? Track(windowStart: now, windowStartDollars: dollars,
-                                            lastBurn: 0, burnFired: false, budgetFired: false)
+                                            lastBurn: 0,
+                                            burnFired: restoredBurnFired.contains(row.id),
+                                            budgetFired: restoredBudgetFired.contains(row.id))
 
             // Close the burn window once a full window of wall-clock has passed,
             // averaging real spend across it so single-tick jumps can't spike.

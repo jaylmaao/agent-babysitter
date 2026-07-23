@@ -51,6 +51,33 @@ final class SpendGuardPlannerTests: XCTestCase {
                                   now: base.addingTimeInterval(2)), [])
     }
 
+    /// Quitting and reopening the app must not repeat a nudge the user already
+    /// saw for a session that's still running.
+    func testAlreadyNudgedSessionIsNotNudgedAgainAfterRestart() {
+        var before = SpendGuardPlanner()
+        XCTAssertEqual(before.evaluate(rows: [row("a", .working, 20)], now: base), [])
+        let hits = before.evaluate(rows: [row("a", .working, 26)],
+                                   now: base.addingTimeInterval(1))
+        XCTAssertEqual(hits.map(\.kind), [.crossedBudget])
+        XCTAssertTrue(before.firedBudget.contains("a"), "exported for persistence")
+
+        // Relaunch: a fresh planner seeded from what was persisted.
+        var after = SpendGuardPlanner(firedBurn: before.firedBurn,
+                                      firedBudget: before.firedBudget)
+        XCTAssertEqual(after.evaluate(rows: [row("a", .working, 30)],
+                                      now: base.addingTimeInterval(2)), [],
+                       "already nudged before the restart — stay quiet")
+    }
+
+    /// A session NOT previously nudged still fires normally after a restart.
+    func testUnseenSessionStillNudgesAfterRestart() {
+        var after = SpendGuardPlanner(firedBurn: [], firedBudget: ["other"])
+        XCTAssertEqual(after.evaluate(rows: [row("a", .working, 20)], now: base), [])
+        let hits = after.evaluate(rows: [row("a", .working, 26)],
+                                  now: base.addingTimeInterval(1))
+        XCTAssertEqual(hits.map(\.kind), [.crossedBudget])
+    }
+
     func testNeverFiresOnDoneOrEndedSessions() {
         var g = SpendGuardPlanner()
         _ = g.evaluate(rows: [row("a", .done, 30)], now: base)
