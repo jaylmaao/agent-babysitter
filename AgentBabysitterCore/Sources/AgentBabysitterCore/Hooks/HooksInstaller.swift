@@ -19,9 +19,7 @@ public enum HooksInstaller {
     /// Identifies our hook entries inside settings.json.
     public static let marker = "agent-babysitter-hook-v1"
 
-    public static let defaultEventLogURL = FileManager.default
-        .homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support/AgentBabysitter/events.jsonl")
+    public static let defaultEventLogURL = PlatformPaths.applicationSupport("AgentBabysitter/events.jsonl")
 
     /// PreToolUse fires when a tool starts EXECUTING (after any permission
     /// approval), which is what lets the app tell "waiting on a prompt" from
@@ -120,9 +118,7 @@ public enum HooksInstaller {
 
     // MARK: - File wrappers
 
-    public static let defaultSettingsURL = FileManager.default
-        .homeDirectoryForCurrentUser
-        .appendingPathComponent(".claude/settings.json")
+    public static let defaultSettingsURL = PlatformPaths.homeDirectory(".claude/settings.json")
 
     public static func install(settingsURL: URL = defaultSettingsURL,
                                eventLogPath: String = defaultEventLogURL.path) throws {

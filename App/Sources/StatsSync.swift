@@ -15,10 +15,9 @@ enum StatsSync {
         if let cache = folderCache, Date().timeIntervalSince(cache.at) < 300 {
             return cache.url
         }
-        let base = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
         var result: URL?
-        if FileManager.default.fileExists(atPath: base.path) {
+        if let base = PlatformPaths.iCloudDrive,
+           FileManager.default.fileExists(atPath: base.path) {
             let dir = base.appendingPathComponent("AgentBabysitter")
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             result = dir

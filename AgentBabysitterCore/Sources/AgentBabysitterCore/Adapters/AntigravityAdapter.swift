@@ -57,8 +57,7 @@ public struct AntigravityAdapter: AgentAdapter {
     public var cliExecutableNames: [String] { surface == .cli ? ["agy"] : [] }
 
     public init(surface: Surface,
-                geminiRoot: URL = FileManager.default.homeDirectoryForCurrentUser
-                    .appendingPathComponent(".gemini")) {
+                geminiRoot: URL = PlatformPaths.homeDirectory(".gemini")) {
         self.surface = surface
         self.transcriptRoot = geminiRoot
             .appendingPathComponent(surface.rawValue)
@@ -66,8 +65,7 @@ public struct AntigravityAdapter: AgentAdapter {
     }
 
     public static func allSurfaces(
-        geminiRoot: URL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".gemini")
+        geminiRoot: URL = PlatformPaths.homeDirectory(".gemini")
     ) -> [AntigravityAdapter] {
         Surface.allCases.map { AntigravityAdapter(surface: $0, geminiRoot: geminiRoot) }
     }
@@ -129,8 +127,7 @@ public struct AntigravityAdapter: AgentAdapter {
     public var isActivityBased: Bool { true }
 
     /// Shared account-state file all surfaces sync to.
-    public static let defaultStateDBURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support/Antigravity IDE/User/globalStorage/state.vscdb")
+    public static let defaultStateDBURL = PlatformPaths.applicationSupport("Antigravity IDE/User/globalStorage/state.vscdb")
 
     /// Account status from the Antigravity IDE's stored state: plan tier
     /// ("Google AI Pro") plus the five-hour quota used % and reset time that
@@ -138,11 +135,9 @@ public struct AntigravityAdapter: AgentAdapter {
     /// file's mtime so staleness is honest. Returns nil when the IDE isn't
     /// installed or the state can't be read.
     public func usageFromDisk(
-        appSupport: URL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support")
+        appSupport: URL = PlatformPaths.applicationSupport
     ) -> UsageLimitSnapshot? {
-        let db = appSupport.path == FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support").path
+        let db = appSupport.path == PlatformPaths.applicationSupport.path
             ? Self.defaultStateDBURL
             : appSupport.appendingPathComponent("Antigravity IDE/User/globalStorage/state.vscdb")
         guard let data = try? Data(contentsOf: db),

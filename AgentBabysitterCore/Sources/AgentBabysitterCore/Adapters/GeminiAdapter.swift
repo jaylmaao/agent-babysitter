@@ -44,7 +44,7 @@ public struct GeminiAdapter: AgentAdapter {
     public var usesNetworkActivity: Bool { surface == .desktop }
 
     public init(surface: Surface,
-                home: URL = FileManager.default.homeDirectoryForCurrentUser) {
+                home: URL = PlatformPaths.home) {
         self.surface = surface
         switch surface {
         case .cli:
@@ -56,7 +56,7 @@ public struct GeminiAdapter: AgentAdapter {
     }
 
     public static func allSurfaces(
-        home: URL = FileManager.default.homeDirectoryForCurrentUser
+        home: URL = PlatformPaths.home
     ) -> [GeminiAdapter] {
         Surface.allCases.map { GeminiAdapter(surface: $0, home: home) }
     }

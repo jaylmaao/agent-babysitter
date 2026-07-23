@@ -349,8 +349,7 @@ final class AppModel: ObservableObject {
                                      "spendGuardEnabled": true,
                                      "spendGuardBudget": 25.0,
                                      "doneAutoHideMinutes": 10.0])
-        let root = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".claude/projects")
+        let root = PlatformPaths.homeDirectory(".claude/projects")
         projectsRoot = root
         let stallMinutes = defaults.double(forKey: "stallThresholdMinutes")
         let precision = defaults.bool(forKey: "precisionModeEnabled")
@@ -1177,8 +1176,7 @@ final class AppModel: ObservableObject {
     }
 
     private static let historyFileURL: URL = {
-        let dir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/AgentBabysitter")
+        let dir = PlatformPaths.applicationSupport("AgentBabysitter")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("session-history.json")
     }()

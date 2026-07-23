@@ -23,8 +23,7 @@ public struct CursorAdapter: AgentAdapter {
     public var sessionsAreParsed: Bool { true }
     public var multiSessionFiles: Bool { true }
 
-    public init(appSupport: URL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support")) {
+    public init(appSupport: URL = PlatformPaths.applicationSupport) {
         transcriptRoot = appSupport.appendingPathComponent("Cursor/User/globalStorage")
     }
 

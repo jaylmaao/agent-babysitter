@@ -16,8 +16,7 @@ public struct ManusAdapter: AgentAdapter {
     public var isActivityBased: Bool { true }
     public var usesNetworkActivity: Bool { true }
 
-    public init(appSupport: URL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support")) {
+    public init(appSupport: URL = PlatformPaths.applicationSupport) {
         transcriptRoot = appSupport.appendingPathComponent("Manus/IndexedDB")
     }
 

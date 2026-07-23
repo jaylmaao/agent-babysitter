@@ -45,7 +45,7 @@ enum AgentInstallDetector {
     /// GUI apps inherit a minimal PATH, so seed the usual CLI install spots
     /// even before the login shell answers.
     private static func defaultCLIDirectories() -> [String] {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let home = PlatformPaths.home.path
         return ["/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin",
                 "\(home)/.local/bin", "\(home)/.bun/bin", "\(home)/.deno/bin",
                 "\(home)/.npm-global/bin", "\(home)/.volta/bin", "\(home)/n/bin"]

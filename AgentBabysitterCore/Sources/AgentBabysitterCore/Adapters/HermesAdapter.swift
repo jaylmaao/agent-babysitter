@@ -34,8 +34,7 @@ public struct HermesAdapter: AgentAdapter {
     /// deterministic; nil follows the live local zone.
     let timeZone: TimeZone?
 
-    public init(transcriptRoot: URL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".hermes"),
+    public init(transcriptRoot: URL = PlatformPaths.homeDirectory(".hermes"),
                 timeZone: TimeZone? = nil) {
         self.transcriptRoot = transcriptRoot
         self.timeZone = timeZone

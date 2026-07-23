@@ -47,7 +47,7 @@ public struct OpenClawAdapter: AgentAdapter {
 
     /// Resolves the native store root and the SDK root from the environment.
     public init(surface: Surface,
-                home: URL = FileManager.default.homeDirectoryForCurrentUser,
+                home: URL = PlatformPaths.home,
                 environment: [String: String] = ProcessInfo.processInfo.environment,
                 fileManager: FileManager = .default) {
         self.surface = surface
@@ -68,7 +68,7 @@ public struct OpenClawAdapter: AgentAdapter {
     }
 
     public static func allSurfaces(
-        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        home: URL = PlatformPaths.home,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> [OpenClawAdapter] {

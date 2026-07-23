@@ -141,8 +141,7 @@ public struct ClaudeCodeAdapter: AgentAdapter {
     /// agent must still count these sessions, or their spend silently vanishes.
     private let excludeProjectDir: @Sendable (String) -> Bool
 
-    public init(transcriptRoot: URL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".claude/projects"),
+    public init(transcriptRoot: URL = PlatformPaths.homeDirectory(".claude/projects"),
                 excludeProjectDir: @escaping @Sendable (String) -> Bool = { _ in false }) {
         self.transcriptRoot = transcriptRoot
         self.excludeProjectDir = excludeProjectDir
